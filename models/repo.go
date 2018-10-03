@@ -1411,7 +1411,7 @@ func createRepository(e *xorm.Session, doer, u *User, repo *Repository) (err err
 
 // CreateRepository creates a repository for the user/organization u.
 func CreateRepository(doer, u *User, opts CreateRepoOptions) (_ *Repository, err error) {
-	if !u.CanCreateRepo() {
+	if !doer.IsAdmin && !u.CanCreateRepo() {
 		return nil, ErrReachLimitOfRepo{u.MaxRepoCreation}
 	}
 
@@ -1854,6 +1854,9 @@ func DeleteRepository(doer *User, uid, repoID int64) error {
 			return err
 		}
 		if _, err = sess.In("issue_id", issueIDs).Delete(&IssueWatch{}); err != nil {
+			return err
+		}
+		if _, err = sess.In("issue_id", issueIDs).Delete(&Stopwatch{}); err != nil {
 			return err
 		}
 
