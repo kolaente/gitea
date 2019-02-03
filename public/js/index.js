@@ -2335,7 +2335,8 @@ function initHeatmap(appElementId, heatmapUser, locale) {
                 isLoading: true,
                 colorRange: [],
                 endDate: null,
-                values: []
+                values: [],
+                totalContributions: 0
             };
         },
 
@@ -2348,7 +2349,6 @@ function initHeatmap(appElementId, heatmapUser, locale) {
                 this.getColor(4),
                 this.getColor(5)
             ];
-            console.log(this.colorRange);
             this.endDate = new Date();
             this.loadHeatmap(this.user);
         },
@@ -2358,9 +2358,12 @@ function initHeatmap(appElementId, heatmapUser, locale) {
                 var self = this;
                 $.get(this.suburl + '/api/v1/users/' + userName + '/heatmap', function(chartRawData) {
                     var chartData = [];
+                    var totalcontributions = 0;
                     for (var i = 0; i < chartRawData.length; i++) {
+                        totalcontributions += chartRawData[i].contributions;
                         chartData[i] = { date: new Date(chartRawData[i].timestamp * 1000), count: chartRawData[i].contributions };
                     }
+                    self.totalContributions = totalcontributions;
                     self.values = chartData;
                     self.isLoading = false;
                 });
@@ -2379,7 +2382,9 @@ function initHeatmap(appElementId, heatmapUser, locale) {
             }
         },
 
-        template: '<div><div v-show="isLoading"><slot name="loading"></slot></div><calendar-heatmap v-show="!isLoading" :locale="locale" :no-data-text="locale.no_contributions" :tooltip-unit="locale.contributions" :end-date="endDate" :values="values" :range-color="colorRange" />'
+        template: '<div><div v-show="isLoading"><slot name="loading"></slot></div>' +
+            '<h4>{{ totalContributions }} total contributions</h4>' +
+            '<calendar-heatmap v-show="!isLoading" :locale="locale" :no-data-text="locale.no_contributions" :tooltip-unit="locale.contributions" :end-date="endDate" :values="values" :range-color="colorRange" />'
     });
 
     new Vue({
