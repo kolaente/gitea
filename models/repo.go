@@ -197,13 +197,14 @@ type Repository struct {
 	ExternalMetas map[string]string `xorm:"-"`
 	Units         []*RepoUnit       `xorm:"-"`
 
-	IsFork        bool               `xorm:"INDEX NOT NULL DEFAULT false"`
-	ForkID        int64              `xorm:"INDEX"`
-	BaseRepo      *Repository        `xorm:"-"`
-	Size          int64              `xorm:"NOT NULL DEFAULT 0"`
-	IndexerStatus *RepoIndexerStatus `xorm:"-"`
-	IsFsckEnabled bool               `xorm:"NOT NULL DEFAULT true"`
-	Topics        []string           `xorm:"TEXT JSON"`
+	IsFork                          bool               `xorm:"INDEX NOT NULL DEFAULT false"`
+	ForkID                          int64              `xorm:"INDEX"`
+	BaseRepo                        *Repository        `xorm:"-"`
+	Size                            int64              `xorm:"NOT NULL DEFAULT 0"`
+	IndexerStatus                   *RepoIndexerStatus `xorm:"-"`
+	IsFsckEnabled                   bool               `xorm:"NOT NULL DEFAULT true"`
+	CloseIssuesViaCommitInAnyBranch bool               `xorm:"NOT NULL DEFAULT false"`
+	Topics                          []string           `xorm:"TEXT JSON"`
 
 	CreatedUnix util.TimeStamp `xorm:"INDEX created"`
 	UpdatedUnix util.TimeStamp `xorm:"INDEX updated"`
@@ -1359,27 +1360,28 @@ func createRepository(e *xorm.Session, doer, u *User, repo *Repository) (err err
 			return fmt.Errorf("watchRepo: %v", err)
 		}
 	}
-	if err = newRepoAction(e, u, repo); err != nil {
+	if err = newRepoAction(e, doer, repo); err != nil {
 		return fmt.Errorf("newRepoAction: %v", err)
 	}
 
 	return nil
 }
 
-// CreateRepository creates a repository for the user/organization u.
+// CreateRepository creates a repository for the user/organization.
 func CreateRepository(doer, u *User, opts CreateRepoOptions) (_ *Repository, err error) {
 	if !doer.IsAdmin && !u.CanCreateRepo() {
 		return nil, ErrReachLimitOfRepo{u.MaxRepoCreation}
 	}
 
 	repo := &Repository{
-		OwnerID:       u.ID,
-		Owner:         u,
-		Name:          opts.Name,
-		LowerName:     strings.ToLower(opts.Name),
-		Description:   opts.Description,
-		IsPrivate:     opts.IsPrivate,
-		IsFsckEnabled: true,
+		OwnerID:                         u.ID,
+		Owner:                           u,
+		Name:                            opts.Name,
+		LowerName:                       strings.ToLower(opts.Name),
+		Description:                     opts.Description,
+		IsPrivate:                       opts.IsPrivate,
+		IsFsckEnabled:                   !opts.IsMirror,
+		CloseIssuesViaCommitInAnyBranch: setting.Repository.DefaultCloseIssuesViaCommitsInAnyBranch,
 	}
 
 	sess := x.NewSession()
@@ -1756,6 +1758,17 @@ func DeleteRepository(doer *User, uid, repoID int64) error {
 		return ErrRepoNotExist{repoID, uid, "", ""}
 	}
 
+	// Delete Deploy Keys
+	deployKeys, err := listDeployKeys(sess, repo.ID)
+	if err != nil {
+		return fmt.Errorf("listDeployKeys: %v", err)
+	}
+	for _, dKey := range deployKeys {
+		if err := deleteDeployKey(sess, doer, dKey.ID); err != nil {
+			return fmt.Errorf("deleteDeployKeys: %v", err)
+		}
+	}
+
 	if cnt, err := sess.ID(repoID).Delete(&Repository{}); err != nil {
 		return err
 	} else if cnt != 1 {
@@ -1898,6 +1911,12 @@ func DeleteRepository(doer *User, uid, repoID int64) error {
 	}
 
 	if err = sess.Commit(); err != nil {
+		if len(deployKeys) > 0 {
+			// We need to rewrite the public keys because the commit failed
+			if err2 := RewriteAllPublicKeys(); err2 != nil {
+				return fmt.Errorf("Commit: %v SSH Keys: %v", err, err2)
+			}
+		}
 		return fmt.Errorf("Commit: %v", err)
 	}
 
