@@ -4,6 +4,8 @@ IMPORT := code.gitea.io/gitea
 GO ?= go
 SED_INPLACE := sed -i
 
+export PATH := $($(GO) env GOPATH)/bin:$(PATH)
+
 ifeq ($(OS), Windows_NT)
 	EXECUTABLE := gitea.exe
 else
@@ -174,7 +176,7 @@ coverage:
 
 .PHONY: unit-test-coverage
 unit-test-coverage:
-	for PKG in $(PACKAGES); do $(GO) test -tags='sqlite sqlite_unlock_notify' -cover -coverprofile $$GOPATH/src/$$PKG/coverage.out $$PKG || exit 1; done;
+	$(GO) test -tags='sqlite sqlite_unlock_notify' -cover -coverprofile coverage.out $(PACKAGES) && echo "\n==>\033[32m Ok\033[m\n" || exit 1
 
 .PHONY: vendor
 vendor:
@@ -305,7 +307,7 @@ release-dirs:
 .PHONY: release-windows
 release-windows:
 	@hash xgo > /dev/null 2>&1; if [ $$? -ne 0 ]; then \
-		$(GO) get -u github.com/karalabe/xgo; \
+		$(GO) get -u src.techknowlogick.com/xgo; \
 	fi
 	xgo -dest $(DIST)/binaries -tags 'netgo $(TAGS)' -ldflags '-linkmode external -extldflags "-static" $(LDFLAGS)' -targets 'windows/*' -out gitea-$(VERSION) .
 ifeq ($(CI),drone)
@@ -315,7 +317,7 @@ endif
 .PHONY: release-linux
 release-linux:
 	@hash xgo > /dev/null 2>&1; if [ $$? -ne 0 ]; then \
-		$(GO) get -u github.com/karalabe/xgo; \
+		$(GO) get -u src.techknowlogick.com/xgo; \
 	fi
 	xgo -dest $(DIST)/binaries -tags 'netgo $(TAGS)' -ldflags '-linkmode external -extldflags "-static" $(LDFLAGS)' -targets 'linux/*' -out gitea-$(VERSION) .
 ifeq ($(CI),drone)
@@ -325,7 +327,7 @@ endif
 .PHONY: release-darwin
 release-darwin:
 	@hash xgo > /dev/null 2>&1; if [ $$? -ne 0 ]; then \
-		$(GO) get -u github.com/karalabe/xgo; \
+		$(GO) get -u src.techknowlogick.com/xgo; \
 	fi
 	xgo -dest $(DIST)/binaries -tags 'netgo $(TAGS)' -ldflags '$(LDFLAGS)' -targets 'darwin/*' -out gitea-$(VERSION) .
 ifeq ($(CI),drone)
@@ -365,10 +367,14 @@ stylesheets-check: generate-stylesheets
 
 .PHONY: generate-stylesheets
 generate-stylesheets:
-	$(eval BROWSERS := "> 2%, last 2 firefox versions, last 2 safari versions")
-	node_modules/.bin/lessc --clean-css public/less/index.less public/css/index.css
-	$(foreach file, $(filter-out public/less/themes/_base.less, $(wildcard public/less/themes/*)),node_modules/.bin/lessc --clean-css public/less/themes/$(notdir $(file)) > public/css/theme-$(notdir $(call strip-suffix,$(file))).css;)
-	$(foreach file, $(wildcard public/css/*),node_modules/.bin/postcss --use autoprefixer --autoprefixer.browsers $(BROWSERS) -o $(file) $(file);)
+	@hash npx > /dev/null 2>&1; if [ $$? -ne 0 ]; then \
+		echo "Please install npm version 5.2+"; \
+		exit 1; \
+	fi;
+	$(eval BROWSERS := "> 1%, last 2 firefox versions, last 2 safari versions, ie 11")
+	npx lessc --clean-css public/less/index.less public/css/index.css
+	$(foreach file, $(filter-out public/less/themes/_base.less, $(wildcard public/less/themes/*)),npx lessc --clean-css public/less/themes/$(notdir $(file)) > public/css/theme-$(notdir $(call strip-suffix,$(file))).css;)
+	$(foreach file, $(wildcard public/css/*),npx postcss --use autoprefixer --autoprefixer.browsers $(BROWSERS) -o $(file) $(file);)
 
 .PHONY: swagger-ui
 swagger-ui:
@@ -414,3 +420,7 @@ generate-images:
 					$(TMPDIR)/images/64.png $(TMPDIR)/images/128.png \
 					$(PWD)/public/img/favicon.ico
 	rm -rf $(TMPDIR)/images
+	
+.PHONY: pr
+pr:
+	$(GO) run contrib/pr/checkout.go $(PR)
