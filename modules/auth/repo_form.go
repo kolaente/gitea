@@ -10,11 +10,12 @@ import (
 	"strings"
 
 	"code.gitea.io/gitea/models"
+	"code.gitea.io/gitea/modules/setting"
 	"code.gitea.io/gitea/routers/utils"
 
 	"github.com/Unknwon/com"
 	"github.com/go-macaron/binding"
-	"gopkg.in/macaron.v1"
+	macaron "gopkg.in/macaron.v1"
 )
 
 // _______________________________________    _________.______________________ _______________.___.
@@ -112,13 +113,16 @@ type RepoSettingForm struct {
 	PullsIgnoreWhitespace            bool
 	PullsAllowMerge                  bool
 	PullsAllowRebase                 bool
+	PullsAllowRebaseMerge            bool
 	PullsAllowSquash                 bool
 	EnableTimetracker                bool
 	AllowOnlyContributorsToTrackTime bool
 	EnableIssueDependencies          bool
+	IsArchived                       bool
 
 	// Admin settings
-	EnableHealthCheck bool
+	EnableHealthCheck                     bool
+	EnableCloseIssuesViaCommitInAnyBranch bool
 }
 
 // Validate validates the fields
@@ -135,13 +139,16 @@ func (f *RepoSettingForm) Validate(ctx *macaron.Context, errs binding.Errors) bi
 
 // ProtectBranchForm form for changing protected branch settings
 type ProtectBranchForm struct {
-	Protected            bool
-	EnableWhitelist      bool
-	WhitelistUsers       string
-	WhitelistTeams       string
-	EnableMergeWhitelist bool
-	MergeWhitelistUsers  string
-	MergeWhitelistTeams  string
+	Protected               bool
+	EnableWhitelist         bool
+	WhitelistUsers          string
+	WhitelistTeams          string
+	EnableMergeWhitelist    bool
+	MergeWhitelistUsers     string
+	MergeWhitelistTeams     string
+	RequiredApprovals       int64
+	ApprovalsWhitelistUsers string
+	ApprovalsWhitelistTeams string
 }
 
 // Validate validates the fields
@@ -189,6 +196,7 @@ func (f WebhookForm) ChooseEvents() bool {
 // NewWebhookForm form for creating web hook
 type NewWebhookForm struct {
 	PayloadURL  string `binding:"Required;ValidUrl"`
+	HTTPMethod  string `binding:"Required;In(POST,GET)"`
 	ContentType int    `binding:"Required"`
 	Secret      string
 	WebhookForm
@@ -256,6 +264,29 @@ func (f *NewDingtalkHookForm) Validate(ctx *macaron.Context, errs binding.Errors
 	return validate(errs, ctx.Data, f, ctx.Locale)
 }
 
+// NewTelegramHookForm form for creating telegram hook
+type NewTelegramHookForm struct {
+	BotToken string `binding:"Required"`
+	ChatID   string `binding:"Required"`
+	WebhookForm
+}
+
+// Validate validates the fields
+func (f *NewTelegramHookForm) Validate(ctx *macaron.Context, errs binding.Errors) binding.Errors {
+	return validate(errs, ctx.Data, f, ctx.Locale)
+}
+
+// NewMSTeamsHookForm form for creating MS Teams hook
+type NewMSTeamsHookForm struct {
+	PayloadURL string `binding:"Required;ValidUrl"`
+	WebhookForm
+}
+
+// Validate validates the fields
+func (f *NewMSTeamsHookForm) Validate(ctx *macaron.Context, errs binding.Errors) binding.Errors {
+	return validate(errs, ctx.Data, f, ctx.Locale)
+}
+
 // .___
 // |   | ______ ________ __   ____
 // |   |/  ___//  ___/  |  \_/ __ \
@@ -300,6 +331,32 @@ type ReactionForm struct {
 // Validate validates the fields
 func (f *ReactionForm) Validate(ctx *macaron.Context, errs binding.Errors) binding.Errors {
 	return validate(errs, ctx.Data, f, ctx.Locale)
+}
+
+// IssueLockForm form for locking an issue
+type IssueLockForm struct {
+	Reason string `binding:"Required"`
+}
+
+// Validate validates the fields
+func (i *IssueLockForm) Validate(ctx *macaron.Context, errs binding.Errors) binding.Errors {
+	return validate(errs, ctx.Data, i, ctx.Locale)
+}
+
+// HasValidReason checks to make sure that the reason submitted in
+// the form matches any of the values in the config
+func (i IssueLockForm) HasValidReason() bool {
+	if strings.TrimSpace(i.Reason) == "" {
+		return true
+	}
+
+	for _, v := range setting.Repository.Issue.LockReasons {
+		if v == i.Reason {
+			return true
+		}
+	}
+
+	return false
 }
 
 //    _____  .__.__                   __
@@ -359,8 +416,11 @@ func (f *InitializeLabelsForm) Validate(ctx *macaron.Context, errs binding.Error
 //                                     \/     \/   |__|           \/     \/
 
 // MergePullRequestForm form for merging Pull Request
+// swagger:model MergePullRequestOption
 type MergePullRequestForm struct {
-	Do                string `binding:"Required;In(merge,rebase,squash)"`
+	// required: true
+	// enum: merge,rebase,rebase-merge,squash
+	Do                string `binding:"Required;In(merge,rebase,rebase-merge,squash)"`
 	MergeTitleField   string
 	MergeMessageField string
 }
@@ -377,6 +437,7 @@ type CodeCommentForm struct {
 	Line     int64
 	TreePath string `form:"path" binding:"Required"`
 	IsReview bool   `form:"is_review"`
+	Reply    int64  `form:"reply"`
 }
 
 // Validate validates the fields
@@ -553,6 +614,7 @@ type DeleteRepoFileForm struct {
 	CommitMessage string
 	CommitChoice  string `binding:"Required;MaxSize(50)"`
 	NewBranchName string `binding:"GitRefName;MaxSize(100)"`
+	LastCommit    string
 }
 
 // Validate validates the fields

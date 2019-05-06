@@ -19,8 +19,8 @@ import (
 	"strconv"
 	"strings"
 
-	"code.gitea.io/git"
 	"code.gitea.io/gitea/modules/base"
+	"code.gitea.io/gitea/modules/git"
 	"code.gitea.io/gitea/modules/highlight"
 	"code.gitea.io/gitea/modules/log"
 	"code.gitea.io/gitea/modules/process"
@@ -273,7 +273,7 @@ func (diff *Diff) NumFiles() int {
 }
 
 // Example: @@ -1,8 +1,9 @@ => [..., 1, 8, 1, 9]
-var hunkRegex = regexp.MustCompile(`^@@ -([0-9]+),([0-9]+) \+([0-9]+)(,([0-9]+))? @@`)
+var hunkRegex = regexp.MustCompile(`^@@ -(?P<beginOld>[0-9]+)(,(?P<endOld>[0-9]+))? \+(?P<beginNew>[0-9]+)(,(?P<endNew>[0-9]+))? @@`)
 
 func isHeader(lof string) bool {
 	return strings.HasPrefix(lof, cmdDiffHead) || strings.HasPrefix(lof, "---") || strings.HasPrefix(lof, "+++")
@@ -311,21 +311,28 @@ func CutDiffAroundLine(originalDiff io.Reader, line int64, old bool, numbersOfLi
 			if len(hunk) > headerLines {
 				break
 			}
-			groups := hunkRegex.FindStringSubmatch(lof)
+			// A map with named groups of our regex to recognize them later more easily
+			submatches := hunkRegex.FindStringSubmatch(lof)
+			groups := make(map[string]string)
+			for i, name := range hunkRegex.SubexpNames() {
+				if i != 0 && name != "" {
+					groups[name] = submatches[i]
+				}
+			}
 			if old {
-				begin = com.StrTo(groups[1]).MustInt64()
-				end = com.StrTo(groups[2]).MustInt64()
+				begin = com.StrTo(groups["beginOld"]).MustInt64()
+				end = com.StrTo(groups["endOld"]).MustInt64()
 				// init otherLine with begin of opposite side
-				otherLine = com.StrTo(groups[3]).MustInt64()
+				otherLine = com.StrTo(groups["beginNew"]).MustInt64()
 			} else {
-				begin = com.StrTo(groups[3]).MustInt64()
-				if groups[5] != "" {
-					end = com.StrTo(groups[5]).MustInt64()
+				begin = com.StrTo(groups["beginNew"]).MustInt64()
+				if groups["endNew"] != "" {
+					end = com.StrTo(groups["endNew"]).MustInt64()
 				} else {
 					end = 0
 				}
 				// init otherLine with begin of opposite side
-				otherLine = com.StrTo(groups[1]).MustInt64()
+				otherLine = com.StrTo(groups["beginOld"]).MustInt64()
 			}
 			end += begin // end is for real only the number of lines in hunk
 			// lof is between begin and end
@@ -543,7 +550,12 @@ func ParsePatch(maxLines, maxLineCharacters, maxFiles int, reader io.Reader) (*D
 			beg := len(cmdDiffHead)
 			a := line[beg+2 : middle]
 			b := line[middle+3:]
+
 			if hasQuote {
+				// Keep the entire string in double quotes for now
+				a = line[beg:middle]
+				b = line[middle+1:]
+
 				var err error
 				a, err = strconv.Unquote(a)
 				if err != nil {
@@ -553,6 +565,10 @@ func ParsePatch(maxLines, maxLineCharacters, maxFiles int, reader io.Reader) (*D
 				if err != nil {
 					return nil, fmt.Errorf("Unquote: %v", err)
 				}
+				// Now remove the /a /b
+				a = a[2:]
+				b = b[2:]
+
 			}
 
 			curFile = &DiffFile{
@@ -630,6 +646,7 @@ func ParsePatch(maxLines, maxLineCharacters, maxFiles int, reader io.Reader) (*D
 			}
 		}
 	}
+
 	return diff, nil
 }
 

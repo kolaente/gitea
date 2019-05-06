@@ -39,8 +39,8 @@ func TestAPIAdminCreateAndDeleteSSHKey(t *testing.T) {
 		OwnerID:     keyOwner.ID,
 	})
 
-	req = NewRequestf(t, "DELETE", "/api/v1/admin/users/%s/keys/%d?token="+token,
-		keyOwner.Name, newPublicKey.ID)
+	req = NewRequestf(t, "DELETE", "/api/v1/admin/users/%s/keys/%d?token=%s",
+		keyOwner.Name, newPublicKey.ID, token)
 	session.MakeRequest(t, req, http.StatusNoContent)
 	models.AssertNotExistsBean(t, &models.PublicKey{ID: newPublicKey.ID})
 }
@@ -51,7 +51,7 @@ func TestAPIAdminDeleteMissingSSHKey(t *testing.T) {
 	session := loginUser(t, "user1")
 
 	token := getTokenForLoggedInUser(t, session)
-	req := NewRequestf(t, "DELETE", "/api/v1/admin/users/user1/keys/%d?token="+token, models.NonexistentID)
+	req := NewRequestf(t, "DELETE", "/api/v1/admin/users/user1/keys/%d?token=%s", models.NonexistentID, token)
 	session.MakeRequest(t, req, http.StatusNotFound)
 }
 
@@ -73,8 +73,8 @@ func TestAPIAdminDeleteUnauthorizedKey(t *testing.T) {
 
 	session = loginUser(t, normalUsername)
 	token = getTokenForLoggedInUser(t, session)
-	req = NewRequestf(t, "DELETE", "/api/v1/admin/users/%s/keys/%d?token="+token,
-		adminUsername, newPublicKey.ID)
+	req = NewRequestf(t, "DELETE", "/api/v1/admin/users/%s/keys/%d?token=%s",
+		adminUsername, newPublicKey.ID, token)
 	session.MakeRequest(t, req, http.StatusForbidden)
 }
 
@@ -105,4 +105,27 @@ func TestAPISudoUserForbidden(t *testing.T) {
 	urlStr := fmt.Sprintf("/api/v1/user?sudo=%s&token=%s", adminUsername, token)
 	req := NewRequest(t, "GET", urlStr)
 	session.MakeRequest(t, req, http.StatusForbidden)
+}
+
+func TestAPIListUsers(t *testing.T) {
+	prepareTestEnv(t)
+	adminUsername := "user1"
+	session := loginUser(t, adminUsername)
+	token := getTokenForLoggedInUser(t, session)
+
+	urlStr := fmt.Sprintf("/api/v1/admin/users?token=%s", token)
+	req := NewRequest(t, "GET", urlStr)
+	resp := session.MakeRequest(t, req, http.StatusOK)
+	var users []api.User
+	DecodeJSON(t, resp, &users)
+
+	found := false
+	for _, user := range users {
+		if user.UserName == adminUsername {
+			found = true
+		}
+	}
+	assert.True(t, found)
+	numberOfUsers := models.GetCount(t, &models.User{}, "type = 0")
+	assert.Equal(t, numberOfUsers, len(users))
 }

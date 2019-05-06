@@ -80,6 +80,7 @@ func GetGPGKey(ctx *context.APIContext) {
 	//   in: path
 	//   description: id of key to get
 	//   type: integer
+	//   format: int64
 	//   required: true
 	// responses:
 	//   "200":
@@ -89,7 +90,7 @@ func GetGPGKey(ctx *context.APIContext) {
 	key, err := models.GetGPGKeyByID(ctx.ParamsInt64(":id"))
 	if err != nil {
 		if models.IsErrGPGKeyNotExist(err) {
-			ctx.Status(404)
+			ctx.NotFound()
 		} else {
 			ctx.Error(500, "GetGPGKeyByID", err)
 		}
@@ -143,6 +144,7 @@ func DeleteGPGKey(ctx *context.APIContext) {
 	//   in: path
 	//   description: id of key to delete
 	//   type: integer
+	//   format: int64
 	//   required: true
 	// responses:
 	//   "204":

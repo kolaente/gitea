@@ -53,6 +53,13 @@ func TestEncodeSha1(t *testing.T) {
 	)
 }
 
+func TestEncodeSha256(t *testing.T) {
+	assert.Equal(t,
+		"c3ab8ff13720e8ad9047dd39466b3c8974e592c2fa383d4a3960714caef0c4f2",
+		EncodeSha256("foobar"),
+	)
+}
+
 func TestShortSha(t *testing.T) {
 	assert.Equal(t, "veryverylo", ShortSha("veryverylong"))
 }
@@ -299,21 +306,21 @@ func TestFileSize(t *testing.T) {
 
 func TestSubtract(t *testing.T) {
 	toFloat64 := func(n interface{}) float64 {
-		switch n.(type) {
+		switch n := n.(type) {
 		case int:
-			return float64(n.(int))
+			return float64(n)
 		case int8:
-			return float64(n.(int8))
+			return float64(n)
 		case int16:
-			return float64(n.(int16))
+			return float64(n)
 		case int32:
-			return float64(n.(int32))
+			return float64(n)
 		case int64:
-			return float64(n.(int64))
+			return float64(n)
 		case float32:
-			return float64(n.(float32))
+			return float64(n)
 		case float64:
-			return n.(float64)
+			return n
 		default:
 			return 0.0
 		}

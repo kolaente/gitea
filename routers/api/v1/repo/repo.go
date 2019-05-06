@@ -1,4 +1,5 @@
 // Copyright 2014 The Gogs Authors. All rights reserved.
+// Copyright 2018 The Gitea Authors. All rights reserved.
 // Use of this source code is governed by a MIT-style
 // license that can be found in the LICENSE file.
 
@@ -53,6 +54,7 @@ func Search(ctx *context.APIContext) {
 	//   in: query
 	//   description: search only for repos that the user with the given id owns or contributes to
 	//   type: integer
+	//   format: int64
 	// - name: page
 	//   in: query
 	//   description: page number of results to return (1-based)
@@ -182,11 +184,6 @@ func Search(ctx *context.APIContext) {
 		return
 	}
 
-	var userID int64
-	if ctx.IsSigned {
-		userID = ctx.User.ID
-	}
-
 	results := make([]*api.Repository, len(repos))
 	for i, repo := range repos {
 		if err = repo.GetOwner(); err != nil {
@@ -196,7 +193,7 @@ func Search(ctx *context.APIContext) {
 			})
 			return
 		}
-		accessMode, err := models.AccessLevel(userID, repo)
+		accessMode, err := models.AccessLevel(ctx.User, repo)
 		if err != nil {
 			ctx.JSON(500, api.SearchError{
 				OK:    false,
@@ -216,6 +213,9 @@ func Search(ctx *context.APIContext) {
 
 // CreateUserRepo create a repository for a user
 func CreateUserRepo(ctx *context.APIContext, owner *models.User, opt api.CreateRepoOption) {
+	if opt.AutoInit && opt.Readme == "" {
+		opt.Readme = "Default"
+	}
 	repo, err := models.CreateRepository(ctx.User, owner, models.CreateRepoOptions{
 		Name:        opt.Name,
 		Description: opt.Description,
@@ -226,14 +226,15 @@ func CreateUserRepo(ctx *context.APIContext, owner *models.User, opt api.CreateR
 		AutoInit:    opt.AutoInit,
 	})
 	if err != nil {
-		if models.IsErrRepoAlreadyExist(err) ||
-			models.IsErrNameReserved(err) ||
+		if models.IsErrRepoAlreadyExist(err) {
+			ctx.Error(409, "", "The repository with the same name already exists.")
+		} else if models.IsErrNameReserved(err) ||
 			models.IsErrNamePatternNotAllowed(err) {
 			ctx.Error(422, "", err)
 		} else {
 			if repo != nil {
 				if err = models.DeleteRepository(ctx.User, ctx.User.ID, repo.ID); err != nil {
-					log.Error(4, "DeleteRepository: %v", err)
+					log.Error("DeleteRepository: %v", err)
 				}
 			}
 			ctx.Error(500, "CreateRepository", err)
@@ -302,6 +303,11 @@ func CreateOrgRepo(ctx *context.APIContext, opt api.CreateRepoOption) {
 		} else {
 			ctx.Error(500, "GetOrgByName", err)
 		}
+		return
+	}
+
+	if !models.HasOrgVisible(org, ctx.User) {
+		ctx.NotFound("HasOrgVisible", nil)
 		return
 	}
 
@@ -403,10 +409,15 @@ func Migrate(ctx *context.APIContext, form auth.MigrateRepoForm) {
 		RemoteAddr:  remoteAddr,
 	})
 	if err != nil {
+		if models.IsErrRepoAlreadyExist(err) {
+			ctx.Error(409, "", "The repository with the same name already exists.")
+			return
+		}
+
 		err = util.URLSanitizedError(err, remoteAddr)
 		if repo != nil {
 			if errDelete := models.DeleteRepository(ctx.User, ctxUser.ID, repo.ID); errDelete != nil {
-				log.Error(4, "DeleteRepository: %v", errDelete)
+				log.Error("DeleteRepository: %v", errDelete)
 			}
 		}
 		ctx.Error(500, "MigrateRepository", err)
@@ -453,6 +464,7 @@ func GetByID(ctx *context.APIContext) {
 	//   in: path
 	//   description: id of the repo to get
 	//   type: integer
+	//   format: int64
 	//   required: true
 	// responses:
 	//   "200":
@@ -460,22 +472,22 @@ func GetByID(ctx *context.APIContext) {
 	repo, err := models.GetRepositoryByID(ctx.ParamsInt64(":id"))
 	if err != nil {
 		if models.IsErrRepoNotExist(err) {
-			ctx.Status(404)
+			ctx.NotFound()
 		} else {
 			ctx.Error(500, "GetRepositoryByID", err)
 		}
 		return
 	}
 
-	access, err := models.AccessLevel(ctx.User.ID, repo)
+	perm, err := models.GetUserRepoPermission(repo, ctx.User)
 	if err != nil {
 		ctx.Error(500, "AccessLevel", err)
 		return
-	} else if access < models.AccessModeRead {
-		ctx.Status(404)
+	} else if !perm.HasAccess() {
+		ctx.NotFound()
 		return
 	}
-	ctx.JSON(200, repo.APIFormat(access))
+	ctx.JSON(200, repo.APIFormat(perm.AccessMode))
 }
 
 // Delete one repository
@@ -501,14 +513,10 @@ func Delete(ctx *context.APIContext) {
 	//     "$ref": "#/responses/empty"
 	//   "403":
 	//     "$ref": "#/responses/forbidden"
-	if !ctx.Repo.IsAdmin() {
-		ctx.Error(403, "", "Must have admin rights")
-		return
-	}
 	owner := ctx.Repo.Owner
 	repo := ctx.Repo.Repository
 
-	if owner.IsOrganization() {
+	if owner.IsOrganization() && !ctx.User.IsAdmin {
 		isOwner, err := owner.IsOwnedBy(ctx.User.ID)
 		if err != nil {
 			ctx.Error(500, "IsOwnedBy", err)
@@ -551,7 +559,7 @@ func MirrorSync(ctx *context.APIContext) {
 	//     "$ref": "#/responses/empty"
 	repo := ctx.Repo.Repository
 
-	if !ctx.Repo.IsWriter() {
+	if !ctx.Repo.CanWrite(models.UnitTypeCode) {
 		ctx.Error(403, "MirrorSync", "Must have write access")
 	}
 
@@ -589,7 +597,7 @@ func TopicSearch(ctx *context.Context) {
 		Limit:   10,
 	})
 	if err != nil {
-		log.Error(2, "SearchTopics failed: %v", err)
+		log.Error("SearchTopics failed: %v", err)
 		ctx.JSON(500, map[string]interface{}{
 			"message": "Search topics failed.",
 		})

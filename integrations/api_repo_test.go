@@ -6,7 +6,10 @@ package integrations
 
 import (
 	"fmt"
+	"io/ioutil"
 	"net/http"
+	"net/url"
+	"os"
 	"testing"
 
 	"code.gitea.io/gitea/models"
@@ -67,9 +70,9 @@ func TestAPISearchRepo(t *testing.T) {
 		expectedResults
 	}{
 		{name: "RepositoriesMax50", requestURL: "/api/v1/repos/search?limit=50", expectedResults: expectedResults{
-			nil:   {count: 19},
-			user:  {count: 19},
-			user2: {count: 19}},
+			nil:   {count: 21},
+			user:  {count: 21},
+			user2: {count: 21}},
 		},
 		{name: "RepositoriesMax10", requestURL: "/api/v1/repos/search?limit=10", expectedResults: expectedResults{
 			nil:   {count: 10},
@@ -164,7 +167,7 @@ func TestAPISearchRepo(t *testing.T) {
 					assert.Len(t, body.Data, expected.count)
 					for _, repo := range body.Data {
 						r := getRepo(t, repo.ID)
-						hasAccess, err := models.HasAccess(userID, r, models.AccessModeRead)
+						hasAccess, err := models.HasAccess(userID, r)
 						assert.NoError(t, err)
 						assert.True(t, hasAccess)
 
@@ -212,21 +215,46 @@ func TestAPIViewRepo(t *testing.T) {
 func TestAPIOrgRepos(t *testing.T) {
 	prepareTestEnv(t)
 	user := models.AssertExistsAndLoadBean(t, &models.User{ID: 2}).(*models.User)
+	user2 := models.AssertExistsAndLoadBean(t, &models.User{ID: 1}).(*models.User)
+	user3 := models.AssertExistsAndLoadBean(t, &models.User{ID: 5}).(*models.User)
 	// User3 is an Org. Check their repos.
 	sourceOrg := models.AssertExistsAndLoadBean(t, &models.User{ID: 3}).(*models.User)
-	// Login as User2.
-	session := loginUser(t, user.Name)
-	token := getTokenForLoggedInUser(t, session)
-	req := NewRequestf(t, "GET", "/api/v1/orgs/%s/repos?token="+token, sourceOrg.Name)
-	resp := session.MakeRequest(t, req, http.StatusOK)
 
-	var apiRepos []*api.Repository
-	DecodeJSON(t, resp, &apiRepos)
-	expectedLen := models.GetCount(t, models.Repository{OwnerID: sourceOrg.ID},
-		models.Cond("is_private = ?", false))
-	assert.Len(t, apiRepos, expectedLen)
-	for _, repo := range apiRepos {
-		assert.False(t, repo.Private)
+	expectedResults := map[*models.User]struct {
+		count           int
+		includesPrivate bool
+	}{
+		nil:   {count: 1},
+		user:  {count: 2, includesPrivate: true},
+		user2: {count: 3, includesPrivate: true},
+		user3: {count: 1},
+	}
+
+	for userToLogin, expected := range expectedResults {
+		var session *TestSession
+		var testName string
+		var token string
+		if userToLogin != nil && userToLogin.ID > 0 {
+			testName = fmt.Sprintf("LoggedUser%d", userToLogin.ID)
+			session = loginUser(t, userToLogin.Name)
+			token = getTokenForLoggedInUser(t, session)
+		} else {
+			testName = "AnonymousUser"
+			session = emptyTestSession(t)
+		}
+		t.Run(testName, func(t *testing.T) {
+			req := NewRequestf(t, "GET", "/api/v1/orgs/%s/repos?token="+token, sourceOrg.Name)
+			resp := session.MakeRequest(t, req, http.StatusOK)
+
+			var apiRepos []*api.Repository
+			DecodeJSON(t, resp, &apiRepos)
+			assert.Len(t, apiRepos, expected.count)
+			for _, repo := range apiRepos {
+				if !expected.includesPrivate {
+					assert.False(t, repo.Private)
+				}
+			}
+		})
 	}
 }
 
@@ -266,6 +294,44 @@ func TestAPIRepoMigrate(t *testing.T) {
 	}
 }
 
+func TestAPIRepoMigrateConflict(t *testing.T) {
+	onGiteaRun(t, testAPIRepoMigrateConflict)
+}
+
+func testAPIRepoMigrateConflict(t *testing.T, u *url.URL) {
+	username := "user2"
+	baseAPITestContext := NewAPITestContext(t, username, "repo1")
+
+	u.Path = baseAPITestContext.GitPath()
+
+	t.Run("Existing", func(t *testing.T) {
+		httpContext := baseAPITestContext
+
+		httpContext.Reponame = "repo-tmp-17"
+		dstPath, err := ioutil.TempDir("", httpContext.Reponame)
+		assert.NoError(t, err)
+		defer os.RemoveAll(dstPath)
+		t.Run("CreateRepo", doAPICreateRepository(httpContext, false))
+
+		user, err := models.GetUserByName(httpContext.Username)
+		assert.NoError(t, err)
+		userID := user.ID
+
+		cloneURL := "https://github.com/go-gitea/git.git"
+
+		req := NewRequestWithJSON(t, "POST", "/api/v1/repos/migrate?token="+httpContext.Token,
+			&api.MigrateRepoOption{
+				CloneAddr: cloneURL,
+				UID:       int(userID),
+				RepoName:  httpContext.Reponame,
+			})
+		resp := httpContext.Session.MakeRequest(t, req, http.StatusConflict)
+		respJSON := map[string]string{}
+		DecodeJSON(t, resp, &respJSON)
+		assert.Equal(t, respJSON["message"], "The repository with the same name already exists.")
+	})
+}
+
 func TestAPIOrgRepoCreate(t *testing.T) {
 	testCases := []struct {
 		ctxUserID         int64
@@ -287,4 +353,34 @@ func TestAPIOrgRepoCreate(t *testing.T) {
 		})
 		session.MakeRequest(t, req, testCase.expectedStatus)
 	}
+}
+
+func TestAPIRepoCreateConflict(t *testing.T) {
+	onGiteaRun(t, testAPIRepoCreateConflict)
+}
+
+func testAPIRepoCreateConflict(t *testing.T, u *url.URL) {
+	username := "user2"
+	baseAPITestContext := NewAPITestContext(t, username, "repo1")
+
+	u.Path = baseAPITestContext.GitPath()
+
+	t.Run("Existing", func(t *testing.T) {
+		httpContext := baseAPITestContext
+
+		httpContext.Reponame = "repo-tmp-17"
+		dstPath, err := ioutil.TempDir("", httpContext.Reponame)
+		assert.NoError(t, err)
+		defer os.RemoveAll(dstPath)
+		t.Run("CreateRepo", doAPICreateRepository(httpContext, false))
+
+		req := NewRequestWithJSON(t, "POST", "/api/v1/user/repos?token="+httpContext.Token,
+			&api.CreateRepoOption{
+				Name: httpContext.Reponame,
+			})
+		resp := httpContext.Session.MakeRequest(t, req, http.StatusConflict)
+		respJSON := map[string]string{}
+		DecodeJSON(t, resp, &respJSON)
+		assert.Equal(t, respJSON["message"], "The repository with the same name already exists.")
+	})
 }
