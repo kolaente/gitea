@@ -6,9 +6,8 @@ package repo
 
 import (
 	"code.gitea.io/gitea/modules/context"
-
-	"code.gitea.io/git"
-	api "code.gitea.io/sdk/gitea"
+	"code.gitea.io/gitea/modules/git"
+	api "code.gitea.io/gitea/modules/structs"
 )
 
 // GetGitAllRefs get ref or an list all the refs of a repository

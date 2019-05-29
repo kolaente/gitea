@@ -9,16 +9,17 @@ import (
 	"strings"
 	"time"
 
-	"code.gitea.io/git"
 	"code.gitea.io/gitea/models"
 	"code.gitea.io/gitea/models/migrations"
 	"code.gitea.io/gitea/modules/cache"
 	"code.gitea.io/gitea/modules/cron"
+	"code.gitea.io/gitea/modules/git"
 	"code.gitea.io/gitea/modules/highlight"
 	issue_indexer "code.gitea.io/gitea/modules/indexer/issues"
 	"code.gitea.io/gitea/modules/log"
 	"code.gitea.io/gitea/modules/mailer"
 	"code.gitea.io/gitea/modules/markup"
+	"code.gitea.io/gitea/modules/markup/external"
 	"code.gitea.io/gitea/modules/setting"
 	"code.gitea.io/gitea/modules/ssh"
 
@@ -75,24 +76,24 @@ func GlobalInit() {
 
 	if setting.InstallLock {
 		highlight.NewContext()
+		external.RegisterParsers()
 		markup.Init()
 		if err := initDBEngine(); err == nil {
 			log.Info("ORM engine initialization successful!")
 		} else {
-			log.Fatal(4, "ORM engine initialization failed: %v", err)
+			log.Fatal("ORM engine initialization failed: %v", err)
 		}
 
 		if err := models.InitOAuth2(); err != nil {
-			log.Fatal(4, "Failed to initialize OAuth2 support: %v", err)
+			log.Fatal("Failed to initialize OAuth2 support: %v", err)
 		}
 
-		models.LoadRepoConfig()
 		models.NewRepoContext()
 
 		// Booting long running goroutines.
 		cron.NewContext()
 		if err := issue_indexer.InitIssueIndexer(false); err != nil {
-			log.Fatal(4, "Failed to initialize issue indexer: %v", err)
+			log.Fatal("Failed to initialize issue indexer: %v", err)
 		}
 		models.InitRepoIndexer()
 		models.InitSyncMirrors()
