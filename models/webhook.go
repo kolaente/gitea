@@ -23,9 +23,10 @@ import (
 	"code.gitea.io/gitea/modules/setting"
 	api "code.gitea.io/gitea/modules/structs"
 	"code.gitea.io/gitea/modules/sync"
-	"code.gitea.io/gitea/modules/util"
-	"github.com/Unknwon/com"
+	"code.gitea.io/gitea/modules/timeutil"
+
 	gouuid "github.com/satori/go.uuid"
+	"github.com/unknwon/com"
 )
 
 // HookQueue is a global queue of web hooks
@@ -118,8 +119,8 @@ type Webhook struct {
 	Meta         string     `xorm:"TEXT"` // store hook-specific attributes
 	LastStatus   HookStatus // Last delivery status
 
-	CreatedUnix util.TimeStamp `xorm:"INDEX created"`
-	UpdatedUnix util.TimeStamp `xorm:"INDEX updated"`
+	CreatedUnix timeutil.TimeStamp `xorm:"INDEX created"`
+	UpdatedUnix timeutil.TimeStamp `xorm:"INDEX updated"`
 }
 
 // AfterLoad updates the webhook object upon setting a column
@@ -700,7 +701,10 @@ func prepareWebhook(e Engine, w *Webhook, repo *Repository, event HookEventType,
 			log.Error("prepareWebhooks.JSONPayload: %v", err)
 		}
 		sig := hmac.New(sha256.New, []byte(w.Secret))
-		sig.Write(data)
+		_, err = sig.Write(data)
+		if err != nil {
+			log.Error("prepareWebhooks.sigWrite: %v", err)
+		}
 		signature = hex.EncodeToString(sig.Sum(nil))
 	}
 
@@ -887,7 +891,6 @@ func DeliverHooks() {
 	for _, t := range tasks {
 		if err = t.deliver(); err != nil {
 			log.Error("deliver: %v", err)
-			continue
 		}
 	}
 
@@ -930,8 +933,7 @@ func InitDeliverHooks() {
 					return nil, err
 				}
 
-				conn.SetDeadline(time.Now().Add(timeout))
-				return conn, nil
+				return conn, conn.SetDeadline(time.Now().Add(timeout))
 
 			},
 		},

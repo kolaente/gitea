@@ -13,10 +13,12 @@ import (
 	"strings"
 
 	"code.gitea.io/gitea/modules/base"
+	"code.gitea.io/gitea/modules/git"
+	"code.gitea.io/gitea/modules/log"
 	"code.gitea.io/gitea/modules/setting"
 	"code.gitea.io/gitea/modules/util"
 
-	"github.com/Unknwon/com"
+	"github.com/unknwon/com"
 	"golang.org/x/net/html"
 	"golang.org/x/net/html/atom"
 	"mvdan.cc/xurls/v2"
@@ -108,24 +110,6 @@ func FindAllMentions(content string) []string {
 	return ret
 }
 
-// cutoutVerbosePrefix cutouts URL prefix including sub-path to
-// return a clean unified string of request URL path.
-func cutoutVerbosePrefix(prefix string) string {
-	if len(prefix) == 0 || prefix[0] != '/' {
-		return prefix
-	}
-	count := 0
-	for i := 0; i < len(prefix); i++ {
-		if prefix[i] == '/' {
-			count++
-		}
-		if count >= 3+setting.AppSubURLDepth {
-			return prefix[:i]
-		}
-	}
-	return prefix
-}
-
 // IsSameDomain checks if given url string has the same hostname as current Gitea instance
 func IsSameDomain(s string) bool {
 	if strings.HasPrefix(s, "/") {
@@ -146,7 +130,7 @@ type postProcessError struct {
 }
 
 func (p *postProcessError) Error() string {
-	return "PostProcess: " + p.context + ", " + p.Error()
+	return "PostProcess: " + p.context + ", " + p.err.Error()
 }
 
 type processor func(ctx *postProcessCtx, node *html.Node)
@@ -304,20 +288,6 @@ func (ctx *postProcessCtx) visitNode(node *html.Node) {
 	// ignore everything else
 }
 
-func (ctx *postProcessCtx) visitNodeForShortLinks(node *html.Node) {
-	switch node.Type {
-	case html.TextNode:
-		shortLinkProcessorFull(ctx, node, true)
-	case html.ElementNode:
-		if node.Data == "code" || node.Data == "pre" || node.Data == "a" {
-			return
-		}
-		for n := node.FirstChild; n != nil; n = n.NextSibling {
-			ctx.visitNodeForShortLinks(n)
-		}
-	}
-}
-
 // textNode runs the passed node through various processors, in order to handle
 // all kinds of special links handled by the post-processing.
 func (ctx *postProcessCtx) textNode(node *html.Node) {
@@ -355,6 +325,7 @@ func createCodeLink(href, content string) *html.Node {
 	code := &html.Node{
 		Type: html.ElementNode,
 		Data: atom.Code.String(),
+		Attr: []html.Attribute{{Key: "class", Val: "nohighlight"}},
 	}
 
 	code.AppendChild(text)
@@ -469,7 +440,7 @@ func shortLinkProcessorFull(ctx *postProcessCtx, node *html.Node, noLink bool) {
 
 	name += tail
 	image := false
-	switch ext := filepath.Ext(string(link)); ext {
+	switch ext := filepath.Ext(link); ext {
 	// fast path: empty string, ignore
 	case "":
 		break
@@ -513,7 +484,7 @@ func shortLinkProcessorFull(ctx *postProcessCtx, node *html.Node, noLink bool) {
 			title = props["alt"]
 		}
 		if title == "" {
-			title = path.Base(string(name))
+			title = path.Base(name)
 		}
 		alt := props["alt"]
 		if alt == "" {
@@ -677,6 +648,9 @@ func fullSha1PatternProcessor(ctx *postProcessCtx, node *html.Node) {
 // sha1CurrentPatternProcessor renders SHA1 strings to corresponding links that
 // are assumed to be in the same repository.
 func sha1CurrentPatternProcessor(ctx *postProcessCtx, node *html.Node) {
+	if ctx.metas == nil || ctx.metas["user"] == "" || ctx.metas["repo"] == "" || ctx.metas["repoPath"] == "" {
+		return
+	}
 	m := sha1CurrentPattern.FindStringSubmatchIndex(node.Data)
 	if m == nil {
 		return
@@ -688,6 +662,15 @@ func sha1CurrentPatternProcessor(ctx *postProcessCtx, node *html.Node) {
 	// but that is not always the case.
 	// Although unlikely, deadbeef and 1234567 are valid short forms of SHA1 hash
 	// as used by git and github for linking and thus we have to do similar.
+	// Because of this, we check to make sure that a matched hash is actually
+	// a commit in the repository before making it a link.
+	if _, err := git.NewCommand("rev-parse", "--verify", hash).RunInDirBytes(ctx.metas["repoPath"]); err != nil {
+		if !strings.Contains(err.Error(), "fatal: Needed a single revision") {
+			log.Debug("sha1CurrentPatternProcessor git rev-parse: %v", err)
+		}
+		return
+	}
+
 	replaceContent(node, m[2], m[3],
 		createCodeLink(util.URLJoin(setting.AppURL, ctx.metas["user"], ctx.metas["repo"], "commit", hash), base.ShortSha(hash)))
 }

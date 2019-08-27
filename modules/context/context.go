@@ -20,12 +20,13 @@ import (
 	"code.gitea.io/gitea/modules/log"
 	"code.gitea.io/gitea/modules/setting"
 	"code.gitea.io/gitea/modules/util"
-	"github.com/Unknwon/com"
-	"github.com/go-macaron/cache"
-	"github.com/go-macaron/csrf"
-	"github.com/go-macaron/i18n"
-	"github.com/go-macaron/session"
-	"gopkg.in/macaron.v1"
+
+	"gitea.com/macaron/cache"
+	"gitea.com/macaron/csrf"
+	"gitea.com/macaron/i18n"
+	"gitea.com/macaron/macaron"
+	"gitea.com/macaron/session"
+	"github.com/unknwon/com"
 )
 
 // Context represents context of a request.
@@ -130,7 +131,6 @@ func (ctx *Context) RedirectToFirst(location ...string) {
 	}
 
 	ctx.Redirect(setting.AppSubURL + "/")
-	return
 }
 
 // HTML calls Context.HTML and converts template name to string.
@@ -266,7 +266,7 @@ func Contexter() macaron.Handler {
 			}
 			c.Header().Set("Content-Type", "text/html")
 			c.WriteHeader(http.StatusOK)
-			c.Write([]byte(com.Expand(`<!doctype html>
+			_, _ = c.Write([]byte(com.Expand(`<!doctype html>
 <html>
 	<head>
 		<meta name="go-import" content="{GoGetImport} git {CloneLink}">

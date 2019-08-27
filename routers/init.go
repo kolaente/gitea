@@ -5,7 +5,6 @@
 package routers
 
 import (
-	"path"
 	"strings"
 	"time"
 
@@ -23,7 +22,7 @@ import (
 	"code.gitea.io/gitea/modules/setting"
 	"code.gitea.io/gitea/modules/ssh"
 
-	macaron "gopkg.in/macaron.v1"
+	"gitea.com/macaron/macaron"
 )
 
 func checkRunMode() {
@@ -42,22 +41,22 @@ func checkRunMode() {
 func NewServices() {
 	setting.NewServices()
 	mailer.NewContext()
-	cache.NewContext()
+	_ = cache.NewContext()
 }
 
 // In case of problems connecting to DB, retry connection. Eg, PGSQL in Docker Container on Synology
 func initDBEngine() (err error) {
 	log.Info("Beginning ORM engine initialization.")
-	for i := 0; i < setting.DBConnectRetries; i++ {
-		log.Info("ORM engine initialization attempt #%d/%d...", i+1, setting.DBConnectRetries)
+	for i := 0; i < setting.Database.DBConnectRetries; i++ {
+		log.Info("ORM engine initialization attempt #%d/%d...", i+1, setting.Database.DBConnectRetries)
 		if err = models.NewEngine(migrations.Migrate); err == nil {
 			break
-		} else if i == setting.DBConnectRetries-1 {
+		} else if i == setting.Database.DBConnectRetries-1 {
 			return err
 		}
-		log.Debug("ORM engine initialization attempt #%d/%d failed. Error: %v", i+1, setting.DBConnectRetries, err)
-		log.Info("Backing off for %d seconds", int64(setting.DBConnectBackoff/time.Second))
-		time.Sleep(setting.DBConnectBackoff)
+		log.Error("ORM engine initialization attempt #%d/%d failed. Error: %v", i+1, setting.Database.DBConnectRetries, err)
+		log.Info("Backing off for %d seconds", int64(setting.Database.DBConnectBackoff/time.Second))
+		time.Sleep(setting.Database.DBConnectBackoff)
 	}
 	models.HasEngine = true
 	return nil
@@ -66,12 +65,15 @@ func initDBEngine() (err error) {
 // GlobalInit is for global configuration reload-able.
 func GlobalInit() {
 	setting.NewContext()
+	if err := git.Init(); err != nil {
+		log.Fatal("Git module init failed: %v", err)
+	}
 	setting.CheckLFSVersion()
 	log.Trace("AppPath: %s", setting.AppPath)
 	log.Trace("AppWorkPath: %s", setting.AppWorkPath)
 	log.Trace("Custom path: %s", setting.CustomPath)
 	log.Trace("Log path: %s", setting.LogRootPath)
-	models.LoadConfigs()
+
 	NewServices()
 
 	if setting.InstallLock {
@@ -99,13 +101,9 @@ func GlobalInit() {
 		models.InitSyncMirrors()
 		models.InitDeliverHooks()
 		models.InitTestPullRequests()
-		log.NewGitLogger(path.Join(setting.LogRootPath, "http.log"))
 	}
-	if models.EnableSQLite3 {
+	if setting.EnableSQLite3 {
 		log.Info("SQLite3 Supported")
-	}
-	if models.EnableTiDB {
-		log.Info("TiDB Supported")
 	}
 	checkRunMode()
 

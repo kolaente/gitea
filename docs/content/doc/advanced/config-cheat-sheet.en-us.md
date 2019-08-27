@@ -96,6 +96,7 @@ Values containing `#` or `;` must be quoted using `` ` `` or `"""`.
 - `THEMES`:  **gitea,arc-green**: All available themes. Allow users select personalized themes
   regardless of the value of `DEFAULT_THEME`.
 - `DEFAULT_SHOW_FULL_NAME`: false: Whether the full name of the users should be shown where possible. If the full name isn't set, the username will be used.
+- `SEARCH_REPO_DESCRIPTION`: true: Whether to search within description at repository search on explore page.
 
 ### UI - Admin (`ui.admin`)
 
@@ -132,6 +133,7 @@ Values containing `#` or `;` must be quoted using `` ` `` or `"""`.
 - `START_SSH_SERVER`: **false**: When enabled, use the built-in SSH server.
 - `SSH_DOMAIN`: **%(DOMAIN)s**: Domain name of this server, used for displayed clone URL.
 - `SSH_PORT`: **22**: SSH port displayed in clone URL.
+- `SSH_LISTEN_HOST`: **0.0.0.0**: Listen address for the built-in SSH server.
 - `SSH_LISTEN_PORT`: **%(SSH\_PORT)s**: Port for the built-in SSH server.
 - `OFFLINE_MODE`: **false**: Disables use of CDN for static files and Gravatar for profile pictures.
 - `DISABLE_ROUTER_LOG`: **false**: Mute printing of the router log.
@@ -155,7 +157,7 @@ Values containing `#` or `;` must be quoted using `` ` `` or `"""`.
 ## Database (`database`)
 
 - `DB_TYPE`: **mysql**: The database type in use \[mysql, postgres, mssql, sqlite3\].
-- `HOST`: **127.0.0.1:3306**: Database host address and port.
+- `HOST`: **127.0.0.1:3306**: Database host address and port or absolute path for unix socket \[mysql, postgres\] (ex: /var/run/mysqld/mysqld.sock).
 - `NAME`: **gitea**: Database name.
 - `USER`: **root**: Database username.
 - `PASSWD`: **\<empty\>**: Database user password. Use \`your password\` for quoting if you use special characters in the password.
@@ -165,6 +167,8 @@ Values containing `#` or `;` must be quoted using `` ` `` or `"""`.
 - `LOG_SQL`: **true**: Log the executed SQL.
 - `DB_RETRIES`: **10**: How many ORM init / DB connect attempts allowed.
 - `DB_RETRY_BACKOFF`: **3s**: time.Duration to wait before trying another ORM init / DB connect attempt, if failure occured.
+- `MAX_IDLE_CONNS` **0**: Max idle database connections on connnection pool, default is 0
+- `CONN_MAX_LIFETIME` **3s**: Database connection max lifetime
 
 ## Indexer (`indexer`)
 
@@ -195,6 +199,10 @@ Values containing `#` or `;` must be quoted using `` ` `` or `"""`.
 - `DISABLE_GIT_HOOKS`: **false**: Set to `true` to prevent all users (including admin) from creating custom
    git hooks.
 - `IMPORT_LOCAL_PATHS`: **false**: Set to `false` to prevent all users (including admin) from importing local path on server.
+- `INTERNAL_TOKEN`: **\<random at every install if no uri set\>**: Secret used to validate communication within Gitea binary.
+- `INTERNAL_TOKEN_URI`: **<empty>**: Instead of defining internal token in the configuration, this configuration option can be used to give Gitea a path to a file that contains the internal token (example value: `file:/etc/gitea/internal_token`)
+- `PASSWORD_HASH_ALGO`: **pbkdf2**: The hash algorithm to use \[pbkdf2, argon2, scrypt, bcrypt\].
+- `CSRF_COOKIE_HTTP_ONLY`: **true**: Set false to allow JavaScript to read CSRF cookie.
 
 ## OpenID (`openid`)
 
@@ -214,6 +222,9 @@ Values containing `#` or `;` must be quoted using `` ` `` or `"""`.
    Requires `Mailer` to be enabled.
 - `DISABLE_REGISTRATION`: **false**: Disable registration, after which only admin can create
    accounts for users.
+- `REQUIRE_EXTERNAL_REGISTRATION_PASSWORD`: **false**: Enable this to force externally created
+   accounts (via GitHub, OpenID Connect, etc) to create a password. Warning: enabling this will
+   decrease security, so you should only enable it if you know what you're doing.
 - `REQUIRE_SIGNIN_VIEW`: **false**: Enable this to force users to log in to view any page.
 - `ENABLE_NOTIFY_MAIL`: **false**: Enable this to send e-mail to watchers of a repository when
    something happens, like creating issues. Requires `Mailer` to be enabled.
@@ -223,6 +234,8 @@ Values containing `#` or `;` must be quoted using `` ` `` or `"""`.
 - `ENABLE_REVERSE_PROXY_EMAIL`: **false**: Enable this to allow to auto-registration with a
    provided email rather than a generated email.
 - `ENABLE_CAPTCHA`: **false**: Enable this to use captcha validation for registration.
+- `REQUIRE_EXTERNAL_REGISTRATION_CAPTCHA`: **false**: Enable this to force captcha validation
+   even for External Accounts (i.e. GitHub, OpenID Connect, etc). You must `ENABLE_CAPTCHA` also.
 - `CAPTCHA_TYPE`: **image**: \[image, recaptcha\]
 - `RECAPTCHA_SECRET`: **""**: Go to https://www.google.com/recaptcha/admin to get a secret for recaptcha.
 - `RECAPTCHA_SITEKEY`: **""**: Go to https://www.google.com/recaptcha/admin to get a sitekey for recaptcha.
@@ -234,6 +247,7 @@ Values containing `#` or `;` must be quoted using `` ` `` or `"""`.
 - `SHOW_REGISTRATION_BUTTON`: **! DISABLE\_REGISTRATION**: Show Registration Button
 - `AUTO_WATCH_NEW_REPOS`: **true**: Enable this to let all organisation users watch new repos when they are created
 - `DEFAULT_ORG_VISIBILITY`: **public**: Set default visibility mode for organisations, either "public", "limited" or "private".
+- `DEFAULT_ORG_MEMBER_VISIBLE`: **false** True will make the membership of the users visible when added to the organisation.
 
 ## Webhook (`webhook`)
 
@@ -290,7 +304,16 @@ Values containing `#` or `;` must be quoted using `` ` `` or `"""`.
 - `DISABLE_GRAVATAR`: **false**: Enable this to use local avatars only.
 - `ENABLE_FEDERATED_AVATAR`: **false**: Enable support for federated avatars (see
    [http://www.libravatar.org](http://www.libravatar.org)).
-- `AVATAR_UPLOAD_PATH`: **data/avatars**: Path to store local and cached files.
+- `AVATAR_UPLOAD_PATH`: **data/avatars**: Path to store user avatar image files.
+- `REPOSITORY_AVATAR_UPLOAD_PATH`: **data/repo-avatars**: Path to store repository avatar image files.
+- `REPOSITORY_AVATAR_FALLBACK`: **none**: How Gitea deals with missing repository avatars
+  - none = no avatar will be displayed
+  - random = random avatar will be generated
+  - image = default image will be used (which is set in `REPOSITORY_AVATAR_DEFAULT_IMAGE`)
+- `REPOSITORY_AVATAR_FALLBACK_IMAGE`: **/img/repo_default.png**: Image used as default repository avatar (if `REPOSITORY_AVATAR_FALLBACK` is set to image and none was uploaded)
+- `AVATAR_MAX_WIDTH`: **4096**: Maximum avatar image width in pixels.
+- `AVATAR_MAX_HEIGHT`: **3072**: Maximum avatar image height in pixels.
+- `AVATAR_MAX_FILE_SIZE`: **1048576** (1Mb): Maximum avatar image file size in bytes.
 
 ## Attachment (`attachment`)
 
@@ -392,6 +415,7 @@ NB: You must `REDIRECT_MACARON_LOG` and have `DISABLE_ROUTER_LOG` set to `false`
 
 ## Git (`git`)
 
+- `PATH`: **""**: The path of git executable. If empty, Gitea searches through the PATH environment.
 - `MAX_GIT_DIFF_LINES`: **100**: Max number of lines allowed of a single file in diff view.
 - `MAX_GIT_DIFF_LINE_CHARACTERS`: **5000**: Max character count per line highlighted in diff view.
 - `MAX_GIT_DIFF_FILES`: **100**: Max number of files shown in diff view.
@@ -408,7 +432,7 @@ NB: You must `REDIRECT_MACARON_LOG` and have `DISABLE_ROUTER_LOG` set to `false`
 
 ## Metrics (`metrics`)
 
-- `ENABLED`: **false**: Enables /metrics endpoint for prometheus. 
+- `ENABLED`: **false**: Enables /metrics endpoint for prometheus.
 - `TOKEN`: **\<empty\>**: You need to specify the token, if you want to include in the authorization the metrics . The same token need to be used in prometheus parameters `bearer_token` or `bearer_token_file`.
 
 ## API (`api`)
@@ -482,6 +506,10 @@ IS_INPUT_FILE = false
 Two special environment variables are passed to the render command:
 - `GITEA_PREFIX_SRC`, which contains the current URL prefix in the `src` path tree. To be used as prefix for links.
 - `GITEA_PREFIX_RAW`, which contains the current URL prefix in the `raw` path tree. To be used as prefix for image paths.
+
+## Time (`time`)
+- `FORMAT`: Time format to diplay on UI. i.e. RFC1123 or 2006-01-02 15:04:05
+- `DEFAULT_UI_LOCATION`: Default location of time on the UI, so that we can display correct user's time on UI. i.e. Shanghai/Asia
 
 ## Other (`other`)
 
