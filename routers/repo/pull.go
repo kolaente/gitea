@@ -675,6 +675,12 @@ func MergePullRequest(ctx *context.Context, form auth.MergePullRequestForm) {
 
 	if form.MergeWhenChecksSucceed {
 		// TODO: Put everything needed for merge in a db entry
+		err = models.ScheduleAutoMerge(&models.ScheduledPullRequestMerge{})
+		if err != nil {
+			ctx.Flash.Error(ctx.Tr("repo.issues.dependency.pr_close_blocked"))
+			ctx.Redirect(ctx.Repo.RepoLink + "/pulls/" + com.ToStr(pr.Index))
+			return
+		}
 		ctx.Flash.Success(ctx.Tr("repo.pulls.merge_on_status_success_success"))
 		ctx.Redirect(ctx.Repo.RepoLink + "/pulls/" + com.ToStr(pr.Index))
 		return

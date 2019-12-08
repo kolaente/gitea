@@ -293,6 +293,12 @@ func NewCommitStatus(opts NewCommitStatusOptions) error {
 	// TODO: Merge if all statuses are CommitStatusSuccess with the entry from db
 	// Maybe move that check into a seperate go routine and just ping from here?
 	// In that seperate go routine check if all statuses are successfull
+	if opts.CommitStatus.State == CommitStatusSuccess {
+		err = MergeScheduledPullRequest()
+		if err != nil {
+			return err
+		}
+	}
 
 	return sess.Commit()
 }
