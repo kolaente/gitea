@@ -674,6 +674,7 @@ func MergePullRequest(ctx *context.Context, form auth.MergePullRequestForm) {
 	}
 
 	if form.MergeWhenChecksSucceed {
+		// TODO: Put everything needed for merge in a db entry
 		ctx.Flash.Success(ctx.Tr("repo.pulls.merge_on_status_success_success"))
 		ctx.Redirect(ctx.Repo.RepoLink + "/pulls/" + com.ToStr(pr.Index))
 		return
