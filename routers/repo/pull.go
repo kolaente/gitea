@@ -673,6 +673,12 @@ func MergePullRequest(ctx *context.Context, form auth.MergePullRequestForm) {
 		return
 	}
 
+	if form.MergeWhenChecksSucceed {
+		ctx.Flash.Success(ctx.Tr("repo.pulls.merge_on_status_success_success"))
+		ctx.Redirect(ctx.Repo.RepoLink + "/pulls/" + com.ToStr(pr.Index))
+		return
+	}
+
 	if err = pull_service.Merge(pr, ctx.User, ctx.Repo.GitRepo, models.MergeStyle(form.Do), message); err != nil {
 		sanitize := func(x string) string {
 			runes := []rune(x)

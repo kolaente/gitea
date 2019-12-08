@@ -443,9 +443,10 @@ func (f *InitializeLabelsForm) Validate(ctx *macaron.Context, errs binding.Error
 type MergePullRequestForm struct {
 	// required: true
 	// enum: merge,rebase,rebase-merge,squash
-	Do                string `binding:"Required;In(merge,rebase,rebase-merge,squash)"`
-	MergeTitleField   string
-	MergeMessageField string
+	Do                     string `binding:"Required;In(merge,rebase,rebase-merge,squash)"`
+	MergeTitleField        string
+	MergeMessageField      string
+	MergeWhenChecksSucceed bool
 }
 
 // Validate validates the fields
