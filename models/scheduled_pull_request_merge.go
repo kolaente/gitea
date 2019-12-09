@@ -4,6 +4,7 @@
 
 package models
 
+// ScheduledPullRequestMerge represents a pull request scheduled for merging when checks succeed
 type ScheduledPullRequestMerge struct {
 	ID         int64      `xorm:"pk autoincr"`
 	PullID     int64      `xorm:"BIGINT"`
