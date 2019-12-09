@@ -446,6 +446,7 @@ func (c *Commit) GetSubModule(entryname string) (*SubModule, error) {
 }
 
 // GetBranchName gets the closes branch name (as returned by 'git name-rev')
+// FIXME: This get only one branch, but one commit can be part of multiple branches
 func (c *Commit) GetBranchName() (string, error) {
 	data, err := NewCommand("name-rev", c.ID.String()).RunInDirBytes(c.repo.Path)
 	if err != nil {
