@@ -2,59 +2,41 @@
 // Use of this source code is governed by a MIT-style
 // license that can be found in the LICENSE file.
 
-package models
+package automerge
 
 import (
+	"code.gitea.io/gitea/models"
 	"code.gitea.io/gitea/modules/git"
 	"code.gitea.io/gitea/modules/log"
 	pullservice "code.gitea.io/gitea/services/pull"
 )
 
-type ScheduledPullRequestMerge struct {
-	ID         int64      `xorm:"pk autoincr"`
-	PullID     int64      `xorm:"BIGINT"`
-	UserID     int64      `xorm:"BIGINT"`
-	MergeStyle MergeStyle `xorm:"varchar(50)"`
-	Message    string     `xorm:"TEXT"`
-}
-
-// ScheduleAutoMerge schedules a pull request to be merged when all checks succeed
-func ScheduleAutoMerge(opts *ScheduledPullRequestMerge) (err error) {
-	// Check if we already have a merge scheduled for that pull request
-	exists, err := x.Exist(&ScheduledPullRequestMerge{PullID: opts.PullID})
-	if err != nil {
-		return
-	}
-	if exists {
-		// Maybe FIXME: Should we return a custom error here?
-		return nil
-	}
-
-	_, err = x.Insert(opts)
-	return err
-}
+// This package merges a previously scheduled pull request on successful status check.
+// It is a separate package to avoid cyclic dependencies.
 
 // MergeScheduledPullRequest merges a previously scheduled pull request when all checks succeeded
-// Maybe FIXME: Move the whole check this function does into a seperate go routine and just ping from here?
-func MergeScheduledPullRequest(SHA string, repo *Repository) (err error) {
+// Maybe FIXME: Move the whole check this function does into a separate go routine and just ping from here?
+func MergeScheduledPullRequest(sha string, repo *models.Repository) (err error) {
 	// First, get the branch associated with that commit sha
-	commit := &git.Commit{ID: git.MustIDFromString(SHA)}
+	commit := &git.Commit{ID: git.MustIDFromString(sha)}
 	branch, err := commit.GetBranchName()
 	if err != nil {
 		return err
 	}
 	// Then get all prs for that branch
-	pr := &PullRequest{}
-	_, err = x.Where("head_branch = ? AND head_repo_id = ?", branch, repo.ID).Get(pr)
+	pr, err := models.GetPullRequestByHeadBranch(branch, repo)
 	if err != nil {
 		return err
 	}
 
 	// Check if there is a scheduled pr in the db
-	scheduledPRM := &ScheduledPullRequestMerge{}
-	_, err = x.Where("pull_id", pr.ID).Get(scheduledPRM)
+	exists, scheduledPRM, err := models.GetScheduledMergeRequestByPullID(pr.ID)
 	if err != nil {
 		return err
+	}
+	if !exists {
+		log.Info("No scheduled pull request merge exists for this pr [PRID: %d]", pr.ID)
+		return nil
 	}
 
 	// Get all checks for this pr
@@ -79,26 +61,26 @@ func MergeScheduledPullRequest(SHA string, repo *Repository) (err error) {
 		return nil
 	}
 
-	sha, err := headGitRepo.GetBranchCommitID(pr.HeadBranch)
+	newestSha, err := headGitRepo.GetBranchCommitID(pr.HeadBranch)
 	if err != nil {
 		return
 	}
 
-	commitStatuses, err := GetLatestCommitStatus(repo, sha, 0)
+	commitStatuses, err := models.GetLatestCommitStatus(repo, newestSha, 0)
 	if err != nil {
 		return
 	}
 
 	// Check if all checks succeeded
 	for _, status := range commitStatuses {
-		if status.State != CommitStatusSuccess {
+		if status.State != models.CommitStatusSuccess {
 			log.Info("Scheduled auto merge pr has unsuccessful status checks [PRID: %d, State: %s, Commit: %s, Context: %s]", pr.ID, status.State, sha, status.Context)
 			return nil
 		}
 	}
 
 	// Merge if all checks succeeded
-	doer, err := GetUserByID(scheduledPRM.UserID)
+	doer, err := models.GetUserByID(scheduledPRM.UserID)
 	if err != nil {
 		return
 	}

@@ -290,13 +290,6 @@ func NewCommitStatus(opts NewCommitStatusOptions) error {
 		return fmt.Errorf("Insert CommitStatus[%s, %s]: %v", repoPath, opts.SHA, err)
 	}
 
-	if opts.CommitStatus.State == CommitStatusSuccess {
-		err = MergeScheduledPullRequest(opts.SHA, opts.Repo)
-		if err != nil {
-			return err
-		}
-	}
-
 	return sess.Commit()
 }
 
