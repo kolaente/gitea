@@ -14,11 +14,26 @@ type ScheduledPullRequestMerge struct {
 
 // ScheduleAutoMerge schedules a pull request to be merged when all checks succeed
 func ScheduleAutoMerge(opts *ScheduledPullRequestMerge) (err error) {
+	// Check if we already have a merge scheduled for that pull request
+	exists, err := x.Exist(&ScheduledPullRequestMerge{PullID: opts.PullID})
+	if err != nil {
+		return
+	}
+	if exists {
+		// Maybe FIXME: Should we return a custom error here?
+		return nil
+	}
 
+	_, err = x.Insert(opts)
+	return err
 }
 
 // MergeScheduledPullRequest merges a previously scheduled pull request when all checks succeeded
-// TODO: How do I get that pull request?
-func MergeScheduledPullRequest() (err error) {
+// Maybe FIXME: Move the whole check this function does into a seperate go routine and just ping from here?
+func MergeScheduledPullRequest(SHA string, repo *Repository) (err error) {
+	// Get all prs associated with that sha and repo
 
+	// Check if there is a scheduled pr in the db
+	// Check if all checks succeeded
+	// Merge if all checks succeeded
 }

@@ -290,11 +290,8 @@ func NewCommitStatus(opts NewCommitStatusOptions) error {
 		return fmt.Errorf("Insert CommitStatus[%s, %s]: %v", repoPath, opts.SHA, err)
 	}
 
-	// TODO: Merge if all statuses are CommitStatusSuccess with the entry from db
-	// Maybe move that check into a seperate go routine and just ping from here?
-	// In that seperate go routine check if all statuses are successfull
 	if opts.CommitStatus.State == CommitStatusSuccess {
-		err = MergeScheduledPullRequest()
+		err = MergeScheduledPullRequest(opts.SHA, opts.Repo)
 		if err != nil {
 			return err
 		}
