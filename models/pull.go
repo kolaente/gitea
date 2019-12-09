@@ -892,6 +892,8 @@ func (pr *PullRequest) GetWorkInProgressPrefix() string {
 
 // GetPullRequestByHeadBranch returns a pr by head branch
 func GetPullRequestByHeadBranch(headBranch string, repo *Repository) (pr *PullRequest, err error) {
+	pr = &PullRequest{}
 	_, err = x.Where("head_branch = ? AND head_repo_id = ?", headBranch, repo.ID).Get(pr)
+	// TODO: What to do when there is no pr with this head branch?
 	return
 }

@@ -5,6 +5,8 @@
 package automerge
 
 import (
+	"strings"
+
 	"code.gitea.io/gitea/models"
 	"code.gitea.io/gitea/modules/git"
 	"code.gitea.io/gitea/modules/log"
@@ -18,11 +20,23 @@ import (
 // Maybe FIXME: Move the whole check this function does into a separate go routine and just ping from here?
 func MergeScheduledPullRequest(sha string, repo *models.Repository) (err error) {
 	// First, get the branch associated with that commit sha
-	commit := &git.Commit{ID: git.MustIDFromString(sha)}
+	r, err := git.OpenRepository(repo.RepoPath())
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+	commitID := git.MustIDFromString(sha)
+	tree := git.NewTree(r, commitID)
+	commit := &git.Commit{
+		Tree: *tree,
+		ID:   commitID,
+	}
 	branch, err := commit.GetBranchName()
 	if err != nil {
 		return err
 	}
+	// We get the branch name with a \n at the end which is not in the db so we strip it out
+	branch = strings.Trim(branch, "\n")
 	// Then get all prs for that branch
 	pr, err := models.GetPullRequestByHeadBranch(branch, repo)
 	if err != nil {
