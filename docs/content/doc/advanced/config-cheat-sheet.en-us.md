@@ -66,6 +66,8 @@ Values containing `#` or `;` must be quoted using `` ` `` or `"""`.
    default is not to present. **WARNING**: This maybe harmful to you website if you do not
    give it a right value.
 - `DEFAULT_CLOSE_ISSUES_VIA_COMMITS_IN_ANY_BRANCH`:  **false**: Close an issue if a commit on a non default branch marks it as closed.
+- `ENABLE_PUSH_CREATE_USER`:  **false**: Allow users to push local repositories to Gitea and have them automatically created for a user.
+- `ENABLE_PUSH_CREATE_ORG`:  **false**: Allow users to push local repositories to Gitea and have them automatically created for an org.
 
 ### Repository - Pull Request (`repository.pull-request`)
 
@@ -94,7 +96,8 @@ Values containing `#` or `;` must be quoted using `` ` `` or `"""`.
 - `CRUD_ACTIONS`: **pubkey, twofa, parentsigned**: \[never, pubkey, twofa, parentsigned, always\]: Sign CRUD actions.
   - Options as above, with the addition of:
   - `parentsigned`: Only sign if the parent commit is signed.
-- `MERGES`: **pubkey, twofa, basesigned, commitssigned**: \[never, pubkey, twofa, basesigned, commitssigned, always\]: Sign merges.
+- `MERGES`: **pubkey, twofa, basesigned, commitssigned**: \[never, pubkey, twofa, approved, basesigned, commitssigned, always\]: Sign merges.
+  - `approved`: Only sign approved merges to a protected branch.
   - `basesigned`: Only sign if the parent commit in the base repo is signed.
   - `headsigned`: Only sign if the head commit in the head branch is signed.
   - `commitssigned`: Only sign if all the commits in the head branch to the merge point are signed.
@@ -307,11 +310,14 @@ relation to port exhaustion.
 - `EMAIL_DOMAIN_WHITELIST`: **\<empty\>**: If non-empty, list of domain names that can only be used to register
   on this instance.
 - `SHOW_REGISTRATION_BUTTON`: **! DISABLE\_REGISTRATION**: Show Registration Button
+- `SHOW_MILESTONES_DASHBOARD_PAGE`: **true** Enable this to show the milestones dashboard page - a view of all the user's milestones
 - `AUTO_WATCH_NEW_REPOS`: **true**: Enable this to let all organisation users watch new repos when they are created
 - `AUTO_WATCH_ON_CHANGES`: **false**: Enable this to make users watch a repository after their first commit to it
 - `DEFAULT_ORG_VISIBILITY`: **public**: Set default visibility mode for organisations, either "public", "limited" or "private".
 - `DEFAULT_ORG_MEMBER_VISIBLE`: **false** True will make the membership of the users visible when added to the organisation.
 - `ALLOW_ONLY_EXTERNAL_REGISTRATION`: **false** Set to true to force registration only using third-party services.
+- `NO_REPLY_ADDRESS`: **DOMAIN** Default value for the domain part of the user's email address in the git log if he has set KeepEmailPrivate to true. 
+  The user's email will be replaced with a concatenation of the user name in lower case, "@" and NO_REPLY_ADDRESS.
 
 ## Webhook (`webhook`)
 
@@ -404,7 +410,7 @@ relation to port exhaustion.
 NB: You must `REDIRECT_MACARON_LOG` and have `DISABLE_ROUTER_LOG` set to `false` for this option to take effect. Configure each mode in per mode log subsections `\[log.modename.router\]`.
 - `ENABLE_ACCESS_LOG`: **false**: Creates an access.log in NCSA common log format, or as per the following template
 - `ACCESS`: **file**: Logging mode for the access logger, use a comma to separate values. Configure each mode in per mode log subsections `\[log.modename.access\]`. By default the file mode will log to `$ROOT_PATH/access.log`. (If you set this to `,` it will log to the default gitea logger.)
-- `ACCESS_LOG_TEMPLATE`: **`{{.Ctx.RemoteAddr}} - {{.Identity}} {{.Start.Format "[02/Jan/2006:15:04:05 -0700]" }} "{{.Ctx.Req.Method}} {{.Ctx.Req.RequestURI}} {{.Ctx.Req.Proto}}" {{.ResponseWriter.Status}} {{.ResponseWriter.Size}} "{{.Ctx.Req.Referer}}\" \"{{.Ctx.Req.UserAgent}}"`**: Sets the template used to create the access log.
+- `ACCESS_LOG_TEMPLATE`: **`{{.Ctx.RemoteAddr}} - {{.Identity}} {{.Start.Format "[02/Jan/2006:15:04:05 -0700]" }} "{{.Ctx.Req.Method}} {{.Ctx.Req.URL.RequestURI}} {{.Ctx.Req.Proto}}" {{.ResponseWriter.Status}} {{.ResponseWriter.Size}} "{{.Ctx.Req.Referer}}\" \"{{.Ctx.Req.UserAgent}}"`**: Sets the template used to create the access log.
   - The following variables are available:
   - `Ctx`: the `macaron.Context` of the request.
   - `Identity`: the SignedUserName or `"-"` if not logged in.

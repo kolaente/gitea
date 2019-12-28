@@ -97,13 +97,13 @@ func RouterHandler(level log.Level) func(ctx *macaron.Context) {
 	return func(ctx *macaron.Context) {
 		start := time.Now()
 
-		_ = log.GetLogger("router").Log(0, level, "Started %s %s for %s", log.ColoredMethod(ctx.Req.Method), ctx.Req.RequestURI, ctx.RemoteAddr())
+		_ = log.GetLogger("router").Log(0, level, "Started %s %s for %s", log.ColoredMethod(ctx.Req.Method), ctx.Req.URL.RequestURI(), ctx.RemoteAddr())
 
 		rw := ctx.Resp.(macaron.ResponseWriter)
 		ctx.Next()
 
 		status := rw.Status()
-		_ = log.GetLogger("router").Log(0, level, "Completed %s %s %v %s in %v", log.ColoredMethod(ctx.Req.Method), ctx.Req.RequestURI, log.ColoredStatus(status), log.ColoredStatus(status, http.StatusText(rw.Status())), log.ColoredTime(time.Since(start)))
+		_ = log.GetLogger("router").Log(0, level, "Completed %s %s %v %s in %v", log.ColoredMethod(ctx.Req.Method), ctx.Req.URL.RequestURI(), log.ColoredStatus(status), log.ColoredStatus(status, http.StatusText(rw.Status())), log.ColoredTime(time.Since(start)))
 	}
 }
 
@@ -254,6 +254,13 @@ func RegisterRoutes(m *macaron.Macaron) {
 		}
 	}
 
+	reqMilestonesDashboardPageEnabled := func(ctx *context.Context) {
+		if !setting.Service.ShowMilestonesDashboardPage {
+			ctx.Error(403)
+			return
+		}
+	}
+
 	m.Use(user.GetNotificationCount)
 
 	// FIXME: not all routes need go through same middlewares.
@@ -276,6 +283,7 @@ func RegisterRoutes(m *macaron.Macaron) {
 	m.Combo("/install", routers.InstallInit).Get(routers.Install).
 		Post(bindIgnErr(auth.InstallForm{}), routers.InstallPost)
 	m.Get("/^:type(issues|pulls)$", reqSignIn, user.Issues)
+	m.Get("/milestones", reqSignIn, reqMilestonesDashboardPageEnabled, user.Milestones)
 
 	// ***** START: User *****
 	m.Group("/user", func() {
@@ -556,6 +564,7 @@ func RegisterRoutes(m *macaron.Macaron) {
 		m.Group("/:org", func() {
 			m.Get("/dashboard", user.Dashboard)
 			m.Get("/^:type(issues|pulls)$", user.Issues)
+			m.Get("/milestones", reqMilestonesDashboardPageEnabled, user.Milestones)
 			m.Get("/members", org.Members)
 			m.Get("/members/action/:action", org.MembersAction)
 
@@ -685,6 +694,11 @@ func RegisterRoutes(m *macaron.Macaron) {
 				m.Get("/pointers", repo.LFSPointerFiles)
 				m.Post("/pointers/associate", repo.LFSAutoAssociate)
 				m.Get("/find", repo.LFSFileFind)
+				m.Group("/locks", func() {
+					m.Get("/", repo.LFSLocks)
+					m.Post("/", repo.LFSLockFile)
+					m.Post("/:lid/unlock", repo.LFSUnlock)
+				})
 			})
 
 		}, func(ctx *context.Context) {
@@ -756,6 +770,9 @@ func RegisterRoutes(m *macaron.Macaron) {
 		m.Combo("/compare/*", repo.MustBeNotEmpty, reqRepoCodeReader, repo.SetEditorconfigIfExists).
 			Get(repo.SetDiffViewStyle, repo.CompareDiff).
 			Post(context.RepoMustNotBeArchived(), reqRepoPullsReader, repo.MustAllowPulls, bindIgnErr(auth.CreateIssueForm{}), repo.CompareAndPullRequestPost)
+		m.Group("/pull", func() {
+			m.Post("/:index/target_branch", repo.UpdatePullRequestTarget)
+		}, context.RepoMustNotBeArchived())
 
 		m.Group("", func() {
 			m.Group("", func() {

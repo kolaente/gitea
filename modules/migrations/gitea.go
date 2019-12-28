@@ -6,6 +6,7 @@
 package migrations
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -21,6 +22,7 @@ import (
 	"code.gitea.io/gitea/modules/git"
 	"code.gitea.io/gitea/modules/log"
 	"code.gitea.io/gitea/modules/migrations/base"
+	"code.gitea.io/gitea/modules/repository"
 	"code.gitea.io/gitea/modules/setting"
 	"code.gitea.io/gitea/modules/structs"
 	"code.gitea.io/gitea/modules/timeutil"
@@ -34,6 +36,7 @@ var (
 
 // GiteaLocalUploader implements an Uploader to gitea sites
 type GiteaLocalUploader struct {
+	ctx            context.Context
 	doer           *models.User
 	repoOwner      string
 	repoName       string
@@ -48,8 +51,9 @@ type GiteaLocalUploader struct {
 }
 
 // NewGiteaLocalUploader creates an gitea Uploader via gitea API v1
-func NewGiteaLocalUploader(doer *models.User, repoOwner, repoName string) *GiteaLocalUploader {
+func NewGiteaLocalUploader(ctx context.Context, doer *models.User, repoOwner, repoName string) *GiteaLocalUploader {
 	return &GiteaLocalUploader{
+		ctx:         ctx,
 		doer:        doer,
 		repoOwner:   repoOwner,
 		repoName:    repoName,
@@ -111,7 +115,7 @@ func (g *GiteaLocalUploader) CreateRepo(repo *base.Repository, opts base.Migrate
 		return err
 	}
 
-	r, err = models.MigrateRepositoryGitData(g.doer, owner, r, structs.MigrateRepoOption{
+	r, err = repository.MigrateRepositoryGitData(g.doer, owner, r, structs.MigrateRepoOption{
 		RepoName:       g.repoName,
 		Description:    repo.Description,
 		OriginalURL:    repo.OriginalURL,
@@ -201,7 +205,7 @@ func (g *GiteaLocalUploader) CreateLabels(labels ...*base.Label) error {
 }
 
 // CreateReleases creates releases
-func (g *GiteaLocalUploader) CreateReleases(syncTags bool, releases ...*base.Release) error {
+func (g *GiteaLocalUploader) CreateReleases(releases ...*base.Release) error {
 	var rels = make([]*models.Release, 0, len(releases))
 	for _, release := range releases {
 		var rel = models.Release{
@@ -288,16 +292,13 @@ func (g *GiteaLocalUploader) CreateReleases(syncTags bool, releases ...*base.Rel
 
 		rels = append(rels, &rel)
 	}
-	if err := models.InsertReleases(rels...); err != nil {
-		return err
-	}
 
-	if syncTags {
-		// sync tags to releases in database
-		return models.SyncReleasesWithTags(g.repo, g.gitRepo)
-	}
+	return models.InsertReleases(rels...)
+}
 
-	return nil
+// SyncTags syncs releases with tags in the database
+func (g *GiteaLocalUploader) SyncTags() error {
+	return repository.SyncReleasesWithTags(g.repo, g.gitRepo)
 }
 
 // CreateIssues creates issues
