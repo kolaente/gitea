@@ -6,17 +6,18 @@
 package org
 
 import (
-	api "code.gitea.io/sdk/gitea"
+	"net/http"
 
 	"code.gitea.io/gitea/models"
 	"code.gitea.io/gitea/modules/context"
-	"code.gitea.io/gitea/routers/api/v1/convert"
+	"code.gitea.io/gitea/modules/convert"
+	api "code.gitea.io/gitea/modules/structs"
 	"code.gitea.io/gitea/routers/api/v1/user"
 )
 
 func listUserOrgs(ctx *context.APIContext, u *models.User, all bool) {
 	if err := u.GetOrganizations(all); err != nil {
-		ctx.Error(500, "GetOrganizations", err)
+		ctx.Error(http.StatusInternalServerError, "GetOrganizations", err)
 		return
 	}
 
@@ -24,7 +25,7 @@ func listUserOrgs(ctx *context.APIContext, u *models.User, all bool) {
 	for i := range u.Orgs {
 		apiOrgs[i] = convert.ToOrganization(u.Orgs[i])
 	}
-	ctx.JSON(200, &apiOrgs)
+	ctx.JSON(http.StatusOK, &apiOrgs)
 }
 
 // ListMyOrgs list all my orgs
@@ -37,6 +38,7 @@ func ListMyOrgs(ctx *context.APIContext) {
 	// responses:
 	//   "200":
 	//     "$ref": "#/responses/OrganizationList"
+
 	listUserOrgs(ctx, ctx.User, true)
 }
 
@@ -56,6 +58,7 @@ func ListUserOrgs(ctx *context.APIContext) {
 	// responses:
 	//   "200":
 	//     "$ref": "#/responses/OrganizationList"
+
 	u := user.GetUserByParams(ctx)
 	if ctx.Written() {
 		return
@@ -86,31 +89,38 @@ func Create(ctx *context.APIContext, form api.CreateOrgOption) {
 	//     "$ref": "#/responses/validationError"
 
 	if !ctx.User.CanCreateOrganization() {
-		ctx.Error(403, "Create organization not allowed", nil)
+		ctx.Error(http.StatusForbidden, "Create organization not allowed", nil)
 		return
 	}
 
+	visibility := api.VisibleTypePublic
+	if form.Visibility != "" {
+		visibility = api.VisibilityModes[form.Visibility]
+	}
+
 	org := &models.User{
-		Name:        form.UserName,
-		FullName:    form.FullName,
-		Description: form.Description,
-		Website:     form.Website,
-		Location:    form.Location,
-		IsActive:    true,
-		Type:        models.UserTypeOrganization,
+		Name:                      form.UserName,
+		FullName:                  form.FullName,
+		Description:               form.Description,
+		Website:                   form.Website,
+		Location:                  form.Location,
+		IsActive:                  true,
+		Type:                      models.UserTypeOrganization,
+		Visibility:                visibility,
+		RepoAdminChangeTeamAccess: form.RepoAdminChangeTeamAccess,
 	}
 	if err := models.CreateOrganization(org, ctx.User); err != nil {
 		if models.IsErrUserAlreadyExist(err) ||
 			models.IsErrNameReserved(err) ||
 			models.IsErrNamePatternNotAllowed(err) {
-			ctx.Error(422, "", err)
+			ctx.Error(http.StatusUnprocessableEntity, "", err)
 		} else {
-			ctx.Error(500, "CreateOrganization", err)
+			ctx.Error(http.StatusInternalServerError, "CreateOrganization", err)
 		}
 		return
 	}
 
-	ctx.JSON(201, convert.ToOrganization(org))
+	ctx.JSON(http.StatusCreated, convert.ToOrganization(org))
 }
 
 // Get get an organization
@@ -129,11 +139,12 @@ func Get(ctx *context.APIContext) {
 	// responses:
 	//   "200":
 	//     "$ref": "#/responses/Organization"
+
 	if !models.HasOrgVisible(ctx.Org.Organization, ctx.User) {
 		ctx.NotFound("HasOrgVisible", nil)
 		return
 	}
-	ctx.JSON(200, convert.ToOrganization(ctx.Org.Organization))
+	ctx.JSON(http.StatusOK, convert.ToOrganization(ctx.Org.Organization))
 }
 
 // Edit change an organization's information
@@ -153,22 +164,27 @@ func Edit(ctx *context.APIContext, form api.EditOrgOption) {
 	//   required: true
 	// - name: body
 	//   in: body
+	//   required: true
 	//   schema:
 	//     "$ref": "#/definitions/EditOrgOption"
 	// responses:
 	//   "200":
 	//     "$ref": "#/responses/Organization"
+
 	org := ctx.Org.Organization
 	org.FullName = form.FullName
 	org.Description = form.Description
 	org.Website = form.Website
 	org.Location = form.Location
-	if err := models.UpdateUserCols(org, "full_name", "description", "website", "location"); err != nil {
-		ctx.Error(500, "UpdateUser", err)
+	if form.Visibility != "" {
+		org.Visibility = api.VisibilityModes[form.Visibility]
+	}
+	if err := models.UpdateUserCols(org, "full_name", "description", "website", "location", "visibility"); err != nil {
+		ctx.Error(http.StatusInternalServerError, "EditOrganization", err)
 		return
 	}
 
-	ctx.JSON(200, convert.ToOrganization(org))
+	ctx.JSON(http.StatusOK, convert.ToOrganization(org))
 }
 
 //Delete an organization
@@ -187,9 +203,10 @@ func Delete(ctx *context.APIContext) {
 	// responses:
 	//   "204":
 	//     "$ref": "#/responses/empty"
+
 	if err := models.DeleteOrganization(ctx.Org.Organization); err != nil {
-		ctx.Error(500, "DeleteOrganization", err)
+		ctx.Error(http.StatusInternalServerError, "DeleteOrganization", err)
 		return
 	}
-	ctx.Status(204)
+	ctx.Status(http.StatusNoContent)
 }

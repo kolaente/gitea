@@ -6,11 +6,12 @@ package repo
 
 import (
 	"fmt"
+	"net/http"
 
 	"code.gitea.io/gitea/models"
 	"code.gitea.io/gitea/modules/context"
-
-	api "code.gitea.io/sdk/gitea"
+	"code.gitea.io/gitea/modules/repofiles"
+	api "code.gitea.io/gitea/modules/structs"
 )
 
 // NewCommitStatus creates a new CommitStatus
@@ -41,14 +42,14 @@ func NewCommitStatus(ctx *context.APIContext, form api.CreateStatusOption) {
 	//   schema:
 	//     "$ref": "#/definitions/CreateStatusOption"
 	// responses:
-	//   "200":
-	//     "$ref": "#/responses/StatusList"
+	//   "201":
+	//     "$ref": "#/responses/Status"
+	//   "400":
+	//     "$ref": "#/responses/error"
+
 	sha := ctx.Params("sha")
 	if len(sha) == 0 {
-		sha = ctx.Params("ref")
-	}
-	if len(sha) == 0 {
-		ctx.Error(400, "ref/sha not given", nil)
+		ctx.Error(http.StatusBadRequest, "sha not given", nil)
 		return
 	}
 	status := &models.CommitStatus{
@@ -57,17 +58,12 @@ func NewCommitStatus(ctx *context.APIContext, form api.CreateStatusOption) {
 		Description: form.Description,
 		Context:     form.Context,
 	}
-	if err := models.NewCommitStatus(ctx.Repo.Repository, ctx.User, sha, status); err != nil {
-		ctx.Error(500, "NewCommitStatus", err)
+	if err := repofiles.CreateCommitStatus(ctx.Repo.Repository, ctx.User, sha, status); err != nil {
+		ctx.Error(http.StatusInternalServerError, "CreateCommitStatus", err)
 		return
 	}
 
-	newStatus, err := models.GetCommitStatus(ctx.Repo.Repository, sha, status)
-	if err != nil {
-		ctx.Error(500, "GetCommitStatus", err)
-		return
-	}
-	ctx.JSON(201, newStatus.APIFormat())
+	ctx.JSON(http.StatusCreated, status.APIFormat())
 }
 
 // GetCommitStatuses returns all statuses for any given commit hash
@@ -93,9 +89,29 @@ func GetCommitStatuses(ctx *context.APIContext) {
 	//   description: sha of the commit
 	//   type: string
 	//   required: true
+	// - name: page
+	//   in: query
+	//   description: page number of results
+	//   type: integer
+	//   required: false
+	// - name: sort
+	//   in: query
+	//   description: type of sort
+	//   type: string
+	//   enum: [oldest, recentupdate, leastupdate, leastindex, highestindex]
+	//   required: false
+	// - name: state
+	//   in: query
+	//   description: type of state
+	//   type: string
+	//   enum: [pending, success, error, failure, warning]
+	//   required: false
 	// responses:
 	//   "200":
 	//     "$ref": "#/responses/StatusList"
+	//   "400":
+	//     "$ref": "#/responses/error"
+
 	getCommitStatuses(ctx, ctx.Params("sha"))
 }
 
@@ -122,24 +138,77 @@ func GetCommitStatusesByRef(ctx *context.APIContext) {
 	//   description: name of branch/tag/commit
 	//   type: string
 	//   required: true
+	// - name: page
+	//   in: query
+	//   description: page number of results
+	//   type: integer
+	//   required: false
+	// - name: sort
+	//   in: query
+	//   description: type of sort
+	//   type: string
+	//   enum: [oldest, recentupdate, leastupdate, leastindex, highestindex]
+	//   required: false
+	// - name: state
+	//   in: query
+	//   description: type of state
+	//   type: string
+	//   enum: [pending, success, error, failure, warning]
+	//   required: false
 	// responses:
 	//   "200":
 	//     "$ref": "#/responses/StatusList"
-	getCommitStatuses(ctx, ctx.Params("ref"))
+	//   "400":
+	//     "$ref": "#/responses/error"
+
+	filter := ctx.Params("ref")
+	if len(filter) == 0 {
+		ctx.Error(http.StatusBadRequest, "ref not given", nil)
+		return
+	}
+
+	for _, reftype := range []string{"heads", "tags"} { //Search branches and tags
+		refSHA, lastMethodName, err := searchRefCommitByType(ctx, reftype, filter)
+		if err != nil {
+			ctx.Error(http.StatusInternalServerError, lastMethodName, err)
+			return
+		}
+		if refSHA != "" {
+			filter = refSHA
+			break
+		}
+
+	}
+
+	getCommitStatuses(ctx, filter) //By default filter is maybe the raw SHA
+}
+
+func searchRefCommitByType(ctx *context.APIContext, refType, filter string) (string, string, error) {
+	refs, lastMethodName, err := getGitRefs(ctx, refType+"/"+filter) //Search by type
+	if err != nil {
+		return "", lastMethodName, err
+	}
+	if len(refs) > 0 {
+		return refs[0].Object.String(), "", nil //Return found SHA
+	}
+	return "", "", nil
 }
 
 func getCommitStatuses(ctx *context.APIContext, sha string) {
 	if len(sha) == 0 {
-		ctx.Error(400, "ref/sha not given", nil)
+		ctx.Error(http.StatusBadRequest, "ref/sha not given", nil)
 		return
 	}
 	repo := ctx.Repo.Repository
 
-	page := ctx.ParamsInt("page")
-
-	statuses, err := models.GetCommitStatuses(repo, sha, page)
+	statuses, _, err := models.GetCommitStatuses(repo, sha, &models.CommitStatusOptions{
+		Page:     ctx.QueryInt("page"),
+		SortType: ctx.QueryTrim("sort"),
+		State:    ctx.QueryTrim("state"),
+	})
 	if err != nil {
-		ctx.Error(500, "GetCommitStatuses", fmt.Errorf("GetCommitStatuses[%s, %s, %d]: %v", repo.FullName(), sha, page, err))
+		ctx.Error(http.StatusInternalServerError, "GetCommitStatuses", fmt.Errorf("GetCommitStatuses[%s, %s, %d]: %v", repo.FullName(), sha, ctx.QueryInt("page"), err))
+		return
 	}
 
 	apiStatuses := make([]*api.Status, 0, len(statuses))
@@ -147,7 +216,7 @@ func getCommitStatuses(ctx *context.APIContext, sha string) {
 		apiStatuses = append(apiStatuses, status.APIFormat())
 	}
 
-	ctx.JSON(200, apiStatuses)
+	ctx.JSON(http.StatusOK, apiStatuses)
 }
 
 type combinedCommitStatus struct {
@@ -183,26 +252,34 @@ func GetCombinedCommitStatusByRef(ctx *context.APIContext) {
 	//   description: name of branch/tag/commit
 	//   type: string
 	//   required: true
+	// - name: page
+	//   in: query
+	//   description: page number of results
+	//   type: integer
+	//   required: false
 	// responses:
 	//   "200":
 	//     "$ref": "#/responses/Status"
+	//   "400":
+	//     "$ref": "#/responses/error"
+
 	sha := ctx.Params("ref")
 	if len(sha) == 0 {
-		ctx.Error(400, "ref/sha not given", nil)
+		ctx.Error(http.StatusBadRequest, "ref/sha not given", nil)
 		return
 	}
 	repo := ctx.Repo.Repository
 
-	page := ctx.ParamsInt("page")
+	page := ctx.QueryInt("page")
 
 	statuses, err := models.GetLatestCommitStatus(repo, sha, page)
 	if err != nil {
-		ctx.Error(500, "GetLatestCommitStatus", fmt.Errorf("GetLatestCommitStatus[%s, %s, %d]: %v", repo.FullName(), sha, page, err))
+		ctx.Error(http.StatusInternalServerError, "GetLatestCommitStatus", fmt.Errorf("GetLatestCommitStatus[%s, %s, %d]: %v", repo.FullName(), sha, page, err))
 		return
 	}
 
 	if len(statuses) == 0 {
-		ctx.Status(200)
+		ctx.Status(http.StatusOK)
 		return
 	}
 
@@ -221,5 +298,5 @@ func GetCombinedCommitStatusByRef(ctx *context.APIContext) {
 		}
 	}
 
-	ctx.JSON(200, retStatus)
+	ctx.JSON(http.StatusOK, retStatus)
 }

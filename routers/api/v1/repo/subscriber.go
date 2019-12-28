@@ -5,9 +5,11 @@
 package repo
 
 import (
-	"code.gitea.io/gitea/modules/context"
+	"net/http"
 
-	api "code.gitea.io/sdk/gitea"
+	"code.gitea.io/gitea/modules/context"
+	"code.gitea.io/gitea/modules/convert"
+	api "code.gitea.io/gitea/modules/structs"
 )
 
 // ListSubscribers list a repo's subscribers (i.e. watchers)
@@ -31,14 +33,15 @@ func ListSubscribers(ctx *context.APIContext) {
 	// responses:
 	//   "200":
 	//     "$ref": "#/responses/UserList"
+
 	subscribers, err := ctx.Repo.Repository.GetWatchers(0)
 	if err != nil {
-		ctx.Error(500, "GetWatchers", err)
+		ctx.Error(http.StatusInternalServerError, "GetWatchers", err)
 		return
 	}
 	users := make([]*api.User, len(subscribers))
 	for i, subscriber := range subscribers {
-		users[i] = subscriber.APIFormat()
+		users[i] = convert.ToUser(subscriber, ctx.IsSigned, ctx.User != nil && ctx.User.IsAdmin)
 	}
-	ctx.JSON(200, users)
+	ctx.JSON(http.StatusOK, users)
 }
